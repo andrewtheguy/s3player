@@ -23,22 +23,3 @@ export function getEpisodeFileName(episode: Pick<Episode, 's3_key'>): string {
   const match = EPISODE_BASENAME_RE.exec(basename)
   return match?.[1] ?? basename
 }
-
-export function getEpisodeDateParts(episode: Pick<Episode, 'aired_on'>): {
-  year: string
-  month: string
-  day: string
-} {
-  const [year = '', month = '', day = ''] = episode.aired_on.split('-')
-  return { year, month, day }
-}
-
-export function buildEpisodePagePath(
-  episode: Episode,
-  station: string,
-  show: string,
-): string {
-  const { year, month, day } = getEpisodeDateParts(episode)
-  const filename = getEpisodeFileName(episode)
-  return `/shows/${encodeURIComponent(station)}/${encodeURIComponent(show)}/${year}/${month}/${day}/${encodeURIComponent(filename)}`
-}

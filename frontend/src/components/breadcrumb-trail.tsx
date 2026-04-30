@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -8,66 +8,28 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 
-interface Crumb {
+export interface Crumb {
   label: string
   href?: string
 }
 
-type Params = {
-  station?: string
-  show?: string
-  year?: string
-  month?: string
-  day?: string
-  episodeFile?: string
-} & Record<string, string | undefined>
-
-function formatDateSegment(value: string): string {
-  const n = Number(value)
-  return Number.isInteger(n) ? String(n).padStart(2, '0') : value
+interface Props {
+  crumbs: Crumb[]
 }
 
-function buildCrumbs(params: Params): Crumb[] {
-  const crumbs: Crumb[] = [{ label: 'Shows', href: '/shows' }]
-  const station = params.station
-  if (!station) return crumbs
-  crumbs.push({
-    label: station,
-    href: `/shows/${encodeURIComponent(station)}`,
-  })
-  const show = params.show
-  if (!show) return crumbs
-  const showHref = `/shows/${encodeURIComponent(station)}/${encodeURIComponent(show)}`
-  crumbs.push({ label: decodeURIComponent(show), href: showHref })
-  if (!params.year) return crumbs
-  const yearHref = `${showHref}/${params.year}`
-  crumbs.push({ label: params.year, href: yearHref })
-  if (params.month) {
-    const month = formatDateSegment(params.month)
-    crumbs.push({
-      label: month,
-      href: params.episodeFile ? `${yearHref}/${month}` : undefined,
-    })
-  }
-  if (params.day) {
-    crumbs.push({ label: formatDateSegment(params.day) })
-  }
-  if (params.episodeFile) {
-    crumbs.push({ label: params.episodeFile })
-  }
-  return crumbs
-}
-
-export function BreadcrumbTrail() {
-  const params = useParams<Params>()
-  const crumbs = buildCrumbs(params)
+export function BreadcrumbTrail({ crumbs }: Props) {
+  if (crumbs.length === 0) return null
   return (
     <Breadcrumb>
       <BreadcrumbList>
         {crumbs.map((crumb, i) => {
           const isLast = i === crumbs.length - 1
           return (
-            <span key={crumb.href ?? crumb.label} className="contents">
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: crumbs are rebuilt per page, never reordered; index disambiguates duplicate labels
+              key={`${crumb.href ?? crumb.label}-${i}`}
+              className="contents"
+            >
               <BreadcrumbItem>
                 {isLast ? (
                   <BreadcrumbPage>{crumb.label}</BreadcrumbPage>

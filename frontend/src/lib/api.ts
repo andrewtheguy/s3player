@@ -43,12 +43,20 @@ export interface ShowsResponse {
   shows: Show[]
 }
 
+export interface ShowDetail {
+  id: number
+  station: string
+  name: string
+  episode_count: number
+}
+
 export interface MonthBucket {
   year: number
   month: number
   episode_count: number
 }
 export interface MonthsResponse {
+  show: ShowDetail
   months: MonthBucket[]
 }
 
@@ -66,5 +74,10 @@ export interface Episode {
   chapters: Chapter[] | null
 }
 export interface EpisodesResponse {
+  show: ShowDetail
   episodes: Episode[]
+}
+
+export interface EpisodeDetail extends Episode {
+  show: ShowDetail
 }

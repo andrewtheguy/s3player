@@ -1,13 +1,9 @@
-import { ChevronLeft } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
+import { useParams } from 'react-router-dom'
+import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { Slider } from '@/components/ui/slider'
-import type { Chapter, Episode, EpisodesResponse } from '@/lib/api'
-import {
-  getEpisodeFileName,
-  parseTwoDigitPathSegment,
-} from '@/lib/episode-path'
+import type { Chapter, Episode, EpisodeDetail } from '@/lib/api'
+import { getEpisodeFileName } from '@/lib/episode-path'
 import { useFetch } from '@/lib/use-fetch'
 
 function formatTimestamp(ms: number): string {
@@ -305,60 +301,44 @@ function Skip30ForwardIcon({ className }: { className?: string }) {
 }
 
 export function PlayerPage() {
-  const { station, show, year, month, day, episodeFile } = useParams<{
-    station: string
-    show: string
-    year: string
-    month: string
-    day: string
-    episodeFile: string
-  }>()
-  const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
-  const daySegment = parseTwoDigitPathSegment(day, 1, 31)
-  const hasInvalidDateSegment = monthSegment === null || daySegment === null
-  const listUrl = hasInvalidDateSegment
-    ? null
-    : `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${monthSegment}/episodes`
-  const { data, error, loading } = useFetch<EpisodesResponse>(listUrl)
-  const backUrl = `/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${monthSegment ?? ''}`
-
-  if (hasInvalidDateSegment) {
-    return <p className="text-muted-foreground">Episode not found.</p>
-  }
+  const { episode_id } = useParams<{ episode_id: string }>()
+  const { data, error, loading } = useFetch<EpisodeDetail>(
+    `/api/shows/episodes/${episode_id}`,
+  )
 
   if (loading) return <p className="text-muted-foreground">Loading player…</p>
   if (error) return <p className="text-destructive">Error: {error}</p>
-
-  const episodes = data?.episodes ?? []
-  const episode = episodes.find(
-    (ep) =>
-      ep.aired_on === `${year}-${monthSegment}-${daySegment}` &&
-      getEpisodeFileName(ep) === episodeFile,
-  )
-
-  if (!episode) {
+  if (!data) {
     return <p className="text-muted-foreground">Episode not found.</p>
   }
 
+  const { show } = data
+  const [year, month] = data.aired_on.split('-')
+  const filename = getEpisodeFileName(data)
+  const crumbs = [
+    { label: 'Stations', href: '/stations' },
+    {
+      label: show.station,
+      href: `/stations/${encodeURIComponent(show.station)}`,
+    },
+    { label: show.name, href: `/shows/${show.id}` },
+    { label: year, href: `/shows/${show.id}/${year}` },
+    { label: month, href: `/shows/${show.id}/${year}/${month}` },
+    { label: filename },
+  ]
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">
-            {episodeFile}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {decodeURIComponent(show ?? '')} — {episode.aired_on}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link to={backUrl}>
-            <ChevronLeft aria-hidden />
-            Episodes
-          </Link>
-        </Button>
+      <BreadcrumbTrail crumbs={crumbs} />
+      <div className="min-w-0">
+        <h1 className="truncate text-2xl font-semibold tracking-tight">
+          {filename}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {show.name} — {data.aired_on}
+        </p>
       </div>
-      <EpisodePlayer episode={episode} />
+      <EpisodePlayer episode={data} />
     </div>
   )
 }
