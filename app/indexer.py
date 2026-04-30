@@ -155,7 +155,7 @@ async def _store_chapters(
     chapters = await asyncio.to_thread(_ffprobe_chapters, url)
     if chapters is None:
         return False
-    await conn.execute(_EPISODE_SET_CHAPTERS, json.dumps(chapters), episode_id)
+    await conn.execute(_EPISODE_SET_CHAPTERS, chapters, episode_id)
     return True
 
 
