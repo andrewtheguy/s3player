@@ -54,7 +54,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
           {episode.chapters.map((c) => {
             const isCurrent = currentTimeMs >= c.start && currentTimeMs < c.end
             const rightLabel = isCurrent
-              ? formatTimestamp(c.end - currentTimeMs)
+              ? `-${formatTimestamp(c.end - currentTimeMs)}`
               : formatTimestamp(c.end - c.start)
             return (
               <button
