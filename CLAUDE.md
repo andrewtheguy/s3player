@@ -32,6 +32,8 @@ To auto-fix lint/format/import issues: `bun run lint:fix`.
 
 ## Dev servers
 
+Don't run by default, but if you do need to run, use these commands from the repo root:
+
 ```
 uv run s3player                       # backend on :8000
 cd frontend && bun run dev            # frontend on :5173 (proxies /api → :8000)
@@ -39,7 +41,5 @@ cd frontend && bun run dev            # frontend on :5173 (proxies /api → :800
 
 ## Conventions
 
-- Python target: 3.12. Ruff `line-length = 100`.
-- Frontend formatter (biome): 2-space indent, single quotes, no semicolons. Match this when editing `.ts`/`.tsx`.
-- `noNonNullAssertion` is intentionally disabled in biome — leaving the React 18+ `getElementById('root')!` entrypoint pattern alone.
+- Python target: 3.12.
 - Configs live in `pyproject.toml` (`[tool.ruff]`, `[tool.basedpyright]`) and `frontend/biome.json`.
