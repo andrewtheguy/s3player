@@ -4,7 +4,7 @@ No backward compatibility or migration path for simplicity.
 
 ## Project layout
 
-- Backend: FastAPI app at repo root (`app/`, entrypoint `app.main:app`, CLI dispatcher `app.cli:main` exposed as `s3player` with `server` and `index` subcommands).
+- Backend: FastAPI app at repo root (`app/`, entrypoint `app.server:app`, CLI dispatcher `app.cli:main` exposed as `s3player` with `server` and `index` subcommands).
 - Frontend: Vite + React + TypeScript in `frontend/`. Package manager: `bun`.
 
 ## Validation commands

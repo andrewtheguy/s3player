@@ -24,6 +24,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await close_pool()
 
 
+get_settings()
+
 app = FastAPI(title="s3player", lifespan=lifespan)
 
 app.add_middleware(
@@ -39,10 +41,10 @@ async def site_password_gate(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    settings = get_settings()
     path = request.url.path
-    if not settings.site_password or path.startswith("/api/") or path == "/login":
+    if path.startswith("/api/") or path == "/login":
         return await call_next(request)
+    settings = get_settings()
     if is_authenticated(request, settings.site_password):
         return await call_next(request)
     target = path
@@ -71,4 +73,4 @@ if frontend_dist.is_dir():
 
 
 def run() -> None:
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app.server:app", host="127.0.0.1", port=8000, reload=True)

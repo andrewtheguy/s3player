@@ -6,6 +6,7 @@ os.environ["S3_REGION"] = "us-east-1"
 os.environ["S3_ACCESS_KEY_ID"] = "test-key"
 os.environ["S3_SECRET_ACCESS_KEY"] = "test-secret"
 os.environ["DATABASE_URL"] = "postgres://test@localhost:5432/test"
+os.environ["SITE_PASSWORD"] = "test-password"
 
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
@@ -14,8 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
-from app.main import app
 from app.routers.db import get_conn
+from app.server import app
 
 get_settings.cache_clear()
 

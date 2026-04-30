@@ -27,5 +27,5 @@ def get_settings() -> Settings:
         s3_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
         s3_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
         database_url=os.environ["DATABASE_URL"],
-        site_password=os.environ.get("SITE_PASSWORD", ""),
+        site_password=os.environ["SITE_PASSWORD"],
     )

@@ -13,8 +13,6 @@ def expected_token(password: str) -> str:
 
 
 def is_authenticated(request: Request, password: str) -> bool:
-    if not password:
-        return True
     cookie = request.cookies.get(COOKIE_NAME, "")
     if not cookie:
         return False

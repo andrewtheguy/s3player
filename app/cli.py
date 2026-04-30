@@ -9,7 +9,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.cmd == "server":
-        from app.main import run
+        from app.server import run
 
         run()
     elif args.cmd == "index":

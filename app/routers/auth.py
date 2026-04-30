@@ -78,7 +78,7 @@ def login_submit(
 ) -> HTMLResponse | RedirectResponse:
     settings = get_settings()
     target = safe_next(next)
-    if not settings.site_password or not secrets.compare_digest(password, settings.site_password):
+    if not secrets.compare_digest(password, settings.site_password):
         return HTMLResponse(
             render(next_value=target, error="Wrong password."),
             status_code=401,
