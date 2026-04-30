@@ -220,9 +220,9 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
                     disabled={isFirst}
                     aria-label="Previous chapter"
                     title="Previous chapter"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-xs text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
                   >
-                    ‹
+                    ◀
                   </button>
                   <Slider
                     min={min}
@@ -245,9 +245,9 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
                     disabled={isLast}
                     aria-label="Next chapter"
                     title="Next chapter"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-xs text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
                   >
-                    ›
+                    ▶
                   </button>
                 </div>
                 <p className="truncate text-center text-xs text-muted-foreground">
