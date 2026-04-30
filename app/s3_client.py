@@ -12,10 +12,10 @@ def get_s3_client() -> Any:
     s = get_settings()
     return boto3.client(
         "s3",
-        endpoint_url=s.endpoint,
-        region_name=s.region,
-        aws_access_key_id=s.access_key_id,
-        aws_secret_access_key=s.secret_access_key,
+        endpoint_url=s.s3_endpoint,
+        region_name=s.s3_region,
+        aws_access_key_id=s.s3_access_key_id,
+        aws_secret_access_key=s.s3_secret_access_key,
         config=Config(
             signature_version="s3v4",
             connect_timeout=10,

@@ -26,7 +26,7 @@ def list_top() -> ListResponse:
     settings = get_settings()
     client = get_s3_client()
     try:
-        response = client.list_objects_v2(Bucket=settings.bucket, Delimiter="/")
+        response = client.list_objects_v2(Bucket=settings.s3_bucket, Delimiter="/")
     except ClientError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 

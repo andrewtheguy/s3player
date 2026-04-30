@@ -5,6 +5,7 @@ os.environ["S3_BUCKET"] = "test-bucket"
 os.environ["S3_REGION"] = "us-east-1"
 os.environ["S3_ACCESS_KEY_ID"] = "test-key"
 os.environ["S3_SECRET_ACCESS_KEY"] = "test-secret"
+os.environ["DATABASE_URL"] = "postgres://test@localhost:5432/test"
 
 import pytest
 from fastapi.testclient import TestClient
