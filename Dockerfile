@@ -17,10 +17,11 @@ RUN apt-get -yqq update && \
 
 WORKDIR /usr/src/app
 COPY pyproject.toml uv.lock README.md ./
+COPY app ./app
 
 ENV UV_PROJECT_ENVIRONMENT=/usr/local/
 RUN --mount=from=ghcr.io/astral-sh/uv:0.11.8,source=/uv,target=/uv \
-    /uv sync --locked --no-dev --no-install-project
+    /uv sync --locked --no-dev
 
 # --- Runtime: minimal image with backend + built frontend ---
 FROM python:3.12-slim-bookworm
@@ -31,6 +32,7 @@ RUN apt-get -yqq update && \
 
 COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=backend-builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
+COPY --from=backend-builder /usr/local/bin/s3player /usr/local/bin/s3player
 
 WORKDIR /usr/src/app
 COPY app ./app

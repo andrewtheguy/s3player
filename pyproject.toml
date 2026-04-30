@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-s3player = "app.main:run"
+s3player = "app.cli:main"
 
 [build-system]
 requires = ["hatchling"]

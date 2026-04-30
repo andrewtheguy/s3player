@@ -39,6 +39,9 @@ jobs:
       - name: Test (pytest)
         run: uv run pytest -v
 
+      - name: CLI entry point smoke test
+        run: uv run s3player --help
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
