@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.db import close_pool
 from app.routers import db as db_router
 from app.routers import s3 as s3_router
+from app.routers import shows as shows_router
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ app.add_middleware(
 
 app.include_router(s3_router.router)
 app.include_router(db_router.router)
+app.include_router(shows_router.router)
 
 
 @app.get("/api/health")
