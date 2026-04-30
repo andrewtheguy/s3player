@@ -1,23 +1,6 @@
-from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
-import pytest
 from fastapi.testclient import TestClient
-
-from app.main import app
-from app.routers.db import get_conn
-
-
-@pytest.fixture
-def mock_conn() -> AsyncIterator[AsyncMock]:
-    conn = AsyncMock()
-
-    async def fake_get_conn() -> AsyncIterator[AsyncMock]:
-        yield conn
-
-    app.dependency_overrides[get_conn] = fake_get_conn
-    yield conn
-    app.dependency_overrides.pop(get_conn, None)
 
 
 def test_db_health_ok(client: TestClient, mock_conn: AsyncMock) -> None:
