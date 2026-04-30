@@ -32,6 +32,8 @@ To auto-fix lint/format/import issues: `bun run lint:fix`.
 
 ## Dev servers
 
+Don't run by default, but if you do, use these commands from the repo root:
+
 ```
 uv run s3player                       # backend on :8000
 cd frontend && bun run dev            # frontend on :5173 (proxies /api → :8000)
