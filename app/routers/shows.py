@@ -94,7 +94,8 @@ async def list_shows(
     try:
         rows = await conn.fetch(
             "SELECT s.id, s.name, COUNT(e.id)::int AS episode_count "
-            "FROM shows s LEFT JOIN episodes e ON e.show_id = s.id "
+            "FROM shows s LEFT JOIN episodes e "
+            "ON e.show_id = s.id AND e.deleted = FALSE "
             "WHERE s.station = $1 "
             "GROUP BY s.id, s.name ORDER BY s.name",
             station,
@@ -122,7 +123,7 @@ async def list_months(
             "SELECT EXTRACT(YEAR FROM aired_on)::int AS year, "
             "EXTRACT(MONTH FROM aired_on)::int AS month, "
             "COUNT(*)::int AS episode_count "
-            "FROM episodes WHERE show_id = $1 "
+            "FROM episodes WHERE show_id = $1 AND deleted = FALSE "
             "GROUP BY year, month ORDER BY year DESC, month DESC",
             show_id,
         )
@@ -154,6 +155,7 @@ async def list_episodes(
             "FROM episodes e JOIN shows s ON s.id = e.show_id "
             "WHERE s.station = $1 AND s.name = $2 "
             "AND e.aired_on >= $3 AND e.aired_on < $4 "
+            "AND e.deleted = FALSE "
             "ORDER BY e.aired_on, e.time_slot NULLS LAST",
             station,
             show,
@@ -194,7 +196,9 @@ async def stream_episode_audio(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> StreamingResponse:
     try:
-        s3_key = await conn.fetchval("SELECT s3_key FROM episodes WHERE id = $1", episode_id)
+        s3_key = await conn.fetchval(
+            "SELECT s3_key FROM episodes WHERE id = $1 AND deleted = FALSE", episode_id
+        )
     except Exception as e:
         raise _db_error(e) from e
     if s3_key is None:
