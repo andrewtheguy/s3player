@@ -40,7 +40,8 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
         show_id   INTEGER NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
         aired_on  DATE NOT NULL,
         chapters  JSONB,
-        time_slot TEXT
+        time_slot TEXT,
+        deleted   BOOLEAN NOT NULL DEFAULT FALSE
     )
     """,
     "CREATE INDEX IF NOT EXISTS episodes_show_id_idx ON episodes (show_id)",
@@ -61,6 +62,26 @@ RETURNING id
 """
 
 _EPISODE_SET_CHAPTERS = "UPDATE episodes SET chapters = $1::jsonb WHERE id = $2"
+
+_EPISODE_SOFT_DELETE_MISSING = """
+UPDATE episodes SET deleted = TRUE
+WHERE deleted = FALSE AND s3_key <> ALL($1::text[])
+"""
+
+_EPISODE_RESTORE_PRESENT = """
+UPDATE episodes SET deleted = FALSE
+WHERE deleted = TRUE AND s3_key = ANY($1::text[])
+"""
+
+
+def _parse_update_count(status: str) -> int:
+    parts = status.split()
+    if len(parts) >= 2 and parts[0] == "UPDATE":
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 0
+    return 0
 
 
 async def _bootstrap_schema(conn: PoolConnectionProxy) -> None:
@@ -168,6 +189,9 @@ async def _run() -> None:
     inserted = 0
     already_present = 0
     chapters_filled = 0
+    soft_deleted = 0
+    restored = 0
+    present_keys: set[str] = set()
 
     try:
         async with pool.acquire() as conn:
@@ -186,6 +210,7 @@ async def _run() -> None:
                         skipped_non_m4a += 1
                         logger.info("%s skip non-m4a: %s", progress, key)
                         continue
+                    present_keys.add(key)
                     parsed = parse_episode_key(key)
                     if parsed is None:
                         skipped_unparseable += 1
@@ -202,18 +227,29 @@ async def _run() -> None:
                         logger.info("%s inserted with chapters: %s", progress, key)
                     else:
                         logger.info("%s inserted (no chapters): %s", progress, key)
+
+            present_list = list(present_keys)
+            soft_deleted = _parse_update_count(
+                await conn.execute(_EPISODE_SOFT_DELETE_MISSING, present_list)
+            )
+            restored = _parse_update_count(
+                await conn.execute(_EPISODE_RESTORE_PRESENT, present_list)
+            )
     finally:
         await close_pool()
 
     logger.info(
         "done: scanned=%d inserted=%d already_present=%d "
-        "skipped_unparseable=%d skipped_non_m4a=%d chapters_filled=%d",
+        "skipped_unparseable=%d skipped_non_m4a=%d chapters_filled=%d "
+        "soft_deleted=%d restored=%d",
         scanned,
         inserted,
         already_present,
         skipped_unparseable,
         skipped_non_m4a,
         chapters_filled,
+        soft_deleted,
+        restored,
     )
 
 
