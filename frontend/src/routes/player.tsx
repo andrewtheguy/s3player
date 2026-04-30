@@ -303,7 +303,7 @@ function Skip30ForwardIcon({ className }: { className?: string }) {
 export function PlayerPage() {
   const { episode_id } = useParams<{ episode_id: string }>()
   const { data, error, loading } = useFetch<EpisodeDetail>(
-    episode_id ? `/api/shows/episodes/${episode_id}` : null,
+    `/api/shows/episodes/${episode_id}`,
   )
 
   if (loading) return <p className="text-muted-foreground">Loading player…</p>
