@@ -79,6 +79,10 @@ async def _index_one(
     show_id = show_cache.get(cache_key)
     if show_id is None:
         show_id = await conn.fetchval(_SHOW_UPSERT, station, parsed.show)
+        if show_id is None:
+            raise RuntimeError(
+                f"shows upsert returned no id for station={station!r} show={parsed.show!r}"
+            )
         show_cache[cache_key] = show_id
     inserted_id = await conn.fetchval(
         _EPISODE_INSERT, s3_key, show_id, parsed.aired_on, parsed.time_slot
