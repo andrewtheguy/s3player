@@ -7,15 +7,21 @@ interface State<T> {
   loading: boolean
 }
 
-export function useFetch<T>(path: string): State<T> {
+export function useFetch<T>(path: string | null): State<T> {
   const [state, setState] = useState<State<T>>({
     data: null,
     error: null,
-    loading: true,
+    loading: path !== null,
   })
 
   useEffect(() => {
     let cancelled = false
+    if (path === null) {
+      setState({ data: null, error: null, loading: false })
+      return () => {
+        cancelled = true
+      }
+    }
     setState({ data: null, error: null, loading: true })
     apiFetch<T>(path)
       .then((data) => {

@@ -6,7 +6,7 @@ export function formatTwoDigit(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-export function normalizeTwoDigitPathSegment(
+export function parseTwoDigitPathSegment(
   value: string | undefined,
   min: number,
   max: number,
@@ -14,8 +14,7 @@ export function normalizeTwoDigitPathSegment(
   if (!value) return null
   const n = Number(value)
   if (!Number.isInteger(n) || n < min || n > max) return null
-  const normalized = formatTwoDigit(n)
-  return value === normalized ? null : normalized
+  return formatTwoDigit(n)
 }
 
 export function getEpisodeFileName(episode: Pick<Episode, 's3_key'>): string {

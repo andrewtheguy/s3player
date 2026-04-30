@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import type { Chapter, Episode, EpisodesResponse } from '@/lib/api'
 import {
   getEpisodeFileName,
-  normalizeTwoDigitPathSegment,
+  parseTwoDigitPathSegment,
 } from '@/lib/episode-path'
 import { useFetch } from '@/lib/use-fetch'
 
@@ -75,19 +75,28 @@ export function PlayerPage() {
     day: string
     episodeFile: string
   }>()
-  const normalizedMonth = normalizeTwoDigitPathSegment(month, 1, 12)
-  const normalizedDay = normalizeTwoDigitPathSegment(day, 1, 31)
-  const effectiveMonth = normalizedMonth ?? month ?? ''
-  const effectiveDay = normalizedDay ?? day ?? ''
-  const listUrl = `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${effectiveMonth}/episodes`
+  const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
+  const daySegment = parseTwoDigitPathSegment(day, 1, 31)
+  const monthRedirect =
+    monthSegment !== null && month !== monthSegment ? monthSegment : null
+  const dayRedirect =
+    daySegment !== null && day !== daySegment ? daySegment : null
+  const hasInvalidDateSegment = monthSegment === null || daySegment === null
+  const listUrl = hasInvalidDateSegment
+    ? null
+    : `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${monthSegment}/episodes`
   const { data, error, loading } = useFetch<EpisodesResponse>(listUrl)
-  const backUrl = `/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${effectiveMonth}`
+  const backUrl = `/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${monthSegment ?? ''}`
 
-  if (normalizedMonth || normalizedDay) {
+  if (hasInvalidDateSegment) {
+    return <p className="text-muted-foreground">Episode not found.</p>
+  }
+
+  if (monthRedirect || dayRedirect) {
     return (
       <Navigate
         replace
-        to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${effectiveMonth}/${effectiveDay}/${encodeURIComponent(episodeFile ?? '')}`}
+        to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${monthRedirect ?? monthSegment}/${dayRedirect ?? daySegment}/${encodeURIComponent(episodeFile ?? '')}`}
       />
     )
   }
@@ -98,7 +107,7 @@ export function PlayerPage() {
   const episodes = data?.episodes ?? []
   const episode = episodes.find(
     (ep) =>
-      ep.aired_on === `${year}-${effectiveMonth}-${effectiveDay}` &&
+      ep.aired_on === `${year}-${monthSegment}-${daySegment}` &&
       getEpisodeFileName(ep) === episodeFile,
   )
 

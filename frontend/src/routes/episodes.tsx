@@ -12,7 +12,7 @@ import {
 import type { EpisodesResponse } from '@/lib/api'
 import {
   buildEpisodePagePath,
-  normalizeTwoDigitPathSegment,
+  parseTwoDigitPathSegment,
 } from '@/lib/episode-path'
 import { useFetch } from '@/lib/use-fetch'
 
@@ -30,16 +30,24 @@ export function EpisodesPage() {
     year: string
     month: string
   }>()
-  const normalizedMonth = normalizeTwoDigitPathSegment(month, 1, 12)
-  const effectiveMonth = normalizedMonth ?? month ?? ''
-  const url = `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${effectiveMonth}/episodes`
+  const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
+  const monthRedirect =
+    monthSegment !== null && month !== monthSegment ? monthSegment : null
+  const url =
+    monthSegment === null
+      ? null
+      : `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${monthSegment}/episodes`
   const { data, error, loading } = useFetch<EpisodesResponse>(url)
 
-  if (normalizedMonth) {
+  if (monthSegment === null) {
+    return <p className="text-muted-foreground">Invalid month.</p>
+  }
+
+  if (monthRedirect) {
     return (
       <Navigate
         replace
-        to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${normalizedMonth}`}
+        to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${monthRedirect}`}
       />
     )
   }
@@ -53,7 +61,7 @@ export function EpisodesPage() {
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-        {decodeURIComponent(show ?? '')} — {year}-{effectiveMonth}
+        {decodeURIComponent(show ?? '')} — {year}-{monthSegment}
       </h1>
       <div className="rounded-lg border bg-card">
         <Table>
