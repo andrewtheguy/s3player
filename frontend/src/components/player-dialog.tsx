@@ -54,6 +54,7 @@ export function PlayerDialog({ episode, onClose }: Props) {
               preload="metadata"
               className="w-full"
             >
+              {/* TODO: Add a captions src when caption assets are available from the API. */}
               <track kind="captions" />
             </audio>
             {episode.chapters && episode.chapters.length > 0 ? (
