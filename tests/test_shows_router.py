@@ -225,17 +225,22 @@ def test_list_episodes_invalid_month_422(client: TestClient, mock_conn: AsyncMoc
 
 
 def test_get_episode_returns_detail(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchrow.return_value = {
-        "id": 11,
-        "aired_on": date(2026, 3, 22),
-        "time_slot": "0000_0200",
-        "s3_key": "shows/rthk/radio1/k.m4a",
-        "chapters": [{"title": "Intro", "start": 0, "end": 60000}],
-        "show_id": 7,
-        "station": "rthk-radio1",
-        "show_name": "我得你都得",
-        "show_episode_count": 21,
-    }
+    mock_conn.fetchrow.side_effect = [
+        {
+            "id": 11,
+            "aired_on": date(2026, 3, 22),
+            "time_slot": "0000_0200",
+            "s3_key": "shows/rthk/radio1/k.m4a",
+            "chapters": [{"title": "Intro", "start": 0, "end": 60000}],
+            "show_id": 7,
+        },
+        {
+            "id": 7,
+            "station": "rthk-radio1",
+            "name": "我得你都得",
+            "episode_count": 21,
+        },
+    ]
 
     response = client.get("/api/shows/episodes/11")
 

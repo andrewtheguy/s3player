@@ -231,31 +231,24 @@ async def get_episode(
 ) -> EpisodeDetail:
     try:
         row = await conn.fetchrow(
-            "SELECT e.id, e.aired_on, e.time_slot, e.s3_key, e.chapters, "
-            "s.id AS show_id, s.station, s.name AS show_name, "
-            "(SELECT COUNT(*) FROM episodes e2 "
-            " WHERE e2.show_id = s.id AND e2.deleted = FALSE)::int "
-            "AS show_episode_count "
-            "FROM episodes e JOIN shows s ON s.id = e.show_id "
-            "WHERE e.id = $1 AND e.deleted = FALSE",
+            "SELECT id, aired_on, time_slot, s3_key, chapters, show_id "
+            "FROM episodes WHERE id = $1 AND deleted = FALSE",
             episode_id,
         )
+        if row is None:
+            raise HTTPException(status_code=404, detail="episode not found")
+        show = await _fetch_show_detail(conn, row["show_id"])
+    except HTTPException:
+        raise
     except Exception as e:
         raise _db_error(e) from e
-    if row is None:
-        raise HTTPException(status_code=404, detail="episode not found")
     return EpisodeDetail(
         id=row["id"],
         aired_on=row["aired_on"],
         time_slot=row["time_slot"],
         s3_key=row["s3_key"],
         chapters=row["chapters"],
-        show=ShowDetail(
-            id=row["show_id"],
-            station=row["station"],
-            name=row["show_name"],
-            episode_count=row["show_episode_count"],
-        ),
+        show=show,
     )
 
 
