@@ -1,13 +1,18 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.auth import is_authenticated
+from app.config import get_settings
 from app.db import close_pool
+from app.routers import auth as auth_router
 from app.routers import db as db_router
 from app.routers import s3 as s3_router
 from app.routers import shows as shows_router
@@ -28,6 +33,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def site_password_gate(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    settings = get_settings()
+    path = request.url.path
+    if not settings.site_password or path.startswith("/api/") or path == "/login":
+        return await call_next(request)
+    if is_authenticated(request, settings.site_password):
+        return await call_next(request)
+    target = path
+    if request.url.query:
+        target = f"{path}?{request.url.query}"
+    return RedirectResponse(
+        url=f"/login?next={quote(target, safe='')}",
+        status_code=303,
+    )
+
+
+app.include_router(auth_router.router)
 app.include_router(s3_router.router)
 app.include_router(db_router.router)
 app.include_router(shows_router.router)
