@@ -2,6 +2,8 @@
 
 Instructions for Claude Code when working in this repo.
 
+No backward compatibility or migration path for simplicity.
+
 ## Project layout
 
 - Backend: FastAPI app at repo root (`app/`, entrypoint `app.main:app`, runner `s3player`).
