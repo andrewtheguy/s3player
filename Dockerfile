@@ -27,8 +27,11 @@ RUN --mount=from=ghcr.io/astral-sh/uv:0.11.8,source=/uv,target=/uv \
 FROM python:3.12-slim-trixie
 
 RUN apt-get -yqq update && \
-    apt-get install -yq --no-install-recommends ca-certificates ffmpeg tini && \
+    apt-get install -yq --no-install-recommends ca-certificates tini && \
     apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+COPY --from=mwader/static-ffmpeg:8.0.1 /ffmpeg /usr/local/bin/
+COPY --from=mwader/static-ffmpeg:8.0.1 /ffprobe /usr/local/bin/
 
 COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=backend-builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
