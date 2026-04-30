@@ -80,6 +80,8 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     const audio = audioRef.current
     if (!audio) return
     audio.currentTime = chapter.start / 1000
+    const idx = chapters.indexOf(chapter)
+    if (idx >= 0) setSelectedChapterIndex(idx)
     audio.play().catch(() => {})
   }
 
