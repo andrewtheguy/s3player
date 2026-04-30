@@ -25,7 +25,11 @@ export function BreadcrumbTrail({ crumbs }: Props) {
         {crumbs.map((crumb, i) => {
           const isLast = i === crumbs.length - 1
           return (
-            <span key={crumb.href ?? crumb.label} className="contents">
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: crumbs are rebuilt per page, never reordered; index disambiguates duplicate labels
+              key={`${crumb.href ?? crumb.label}-${i}`}
+              className="contents"
+            >
               <BreadcrumbItem>
                 {isLast ? (
                   <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
