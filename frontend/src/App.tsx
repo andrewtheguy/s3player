@@ -14,7 +14,9 @@ function App() {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem' }}>
       <h1>s3player</h1>
-      <p>backend status: <strong>{status}</strong></p>
+      <p>
+        backend status: <strong>{status}</strong>
+      </p>
     </main>
   )
 }
