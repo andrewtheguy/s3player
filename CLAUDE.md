@@ -6,7 +6,7 @@ No backward compatibility or migration path for simplicity.
 
 ## Project layout
 
-- Backend: FastAPI app at repo root (`app/`, entrypoint `app.main:app`, runner `s3player`).
+- Backend: FastAPI app at repo root (`app/`, entrypoint `app.main:app`, CLI dispatcher `app.cli:main` exposed as `s3player` with `server` and `index` subcommands).
 - Frontend: Vite + React + TypeScript in `frontend/`. Package manager: `bun`.
 
 ## Validation commands
@@ -37,7 +37,8 @@ To auto-fix lint/format/import issues: `bun run lint:fix`.
 Don't run by default, but if you do need to run, use these commands from the repo root:
 
 ```
-uv run s3player                       # backend on :8000
+uv run s3player server                # backend on :8000
+uv run s3player index                 # one-shot S3 → Postgres indexer (no server)
 cd frontend && bun run dev            # frontend on :5173 (proxies /api → :8000)
 ```
 
