@@ -1,5 +1,5 @@
 import { ChevronLeft } from 'lucide-react'
-import { useRef } from 'react'
+import { type SyntheticEvent, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import type { Chapter, Episode, EpisodesResponse } from '@/lib/api'
@@ -21,12 +21,17 @@ function formatTimestamp(ms: number): string {
 
 function EpisodePlayer({ episode }: { episode: Episode }) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const [currentTimeMs, setCurrentTimeMs] = useState(0)
 
   function jumpTo(chapter: Chapter) {
     const audio = audioRef.current
     if (!audio) return
     audio.currentTime = chapter.start / 1000
     audio.play().catch(() => {})
+  }
+
+  function syncTime(e: SyntheticEvent<HTMLAudioElement>) {
+    setCurrentTimeMs(e.currentTarget.currentTime * 1000)
   }
 
   return (
@@ -38,26 +43,44 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         controls
         preload="metadata"
         className="w-full"
+        onTimeUpdate={syncTime}
+        onSeeked={syncTime}
+        onLoadedMetadata={syncTime}
       >
         <track kind="captions" />
       </audio>
       {episode.chapters && episode.chapters.length > 0 ? (
         <div className="max-h-[28rem] overflow-y-auto rounded-md border">
-          {episode.chapters.map((c) => (
-            <button
-              key={`${episode.id}-${c.start}-${c.end}-${c.title}`}
-              type="button"
-              onClick={() => jumpTo(c)}
-              className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent"
-            >
-              <span className="truncate">
-                {c.title || formatTimestamp(c.start)}
-              </span>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {formatTimestamp(c.start)}
-              </span>
-            </button>
-          ))}
+          {episode.chapters.map((c) => {
+            const isCurrent = currentTimeMs >= c.start && currentTimeMs < c.end
+            const rightLabel = isCurrent
+              ? formatTimestamp(c.end - currentTimeMs)
+              : formatTimestamp(c.end - c.start)
+            return (
+              <button
+                key={`${episode.id}-${c.start}-${c.end}-${c.title}`}
+                type="button"
+                onClick={() => jumpTo(c)}
+                aria-current={isCurrent || undefined}
+                className={`flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent ${
+                  isCurrent ? 'bg-accent font-medium' : ''
+                }`}
+              >
+                <span className="truncate">
+                  {c.title || formatTimestamp(c.start)}
+                </span>
+                <span
+                  className={`shrink-0 font-mono text-xs ${
+                    isCurrent
+                      ? 'tabular-nums text-foreground'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  {rightLabel}
+                </span>
+              </button>
+            )
+          })}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">No chapters.</p>
