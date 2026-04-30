@@ -11,11 +11,15 @@ export async function apiFetch<T>(path: string): Promise<T> {
   const response = await fetch(path)
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
-    try {
-      const body = (await response.json()) as { detail?: string }
-      if (typeof body.detail === 'string') detail = body.detail
-    } catch {
-      detail = (await response.text()) || detail
+    const raw = await response.text()
+    if (raw) {
+      try {
+        const body = JSON.parse(raw) as { detail?: unknown }
+        if (typeof body.detail === 'string') detail = body.detail
+        else detail = raw
+      } catch {
+        detail = raw
+      }
     }
     throw new ApiError(response.status, detail)
   }
