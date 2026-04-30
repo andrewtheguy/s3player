@@ -27,7 +27,7 @@ RUN --mount=from=ghcr.io/astral-sh/uv:0.11.8,source=/uv,target=/uv \
 FROM python:3.12-slim-bookworm
 
 RUN apt-get -yqq update && \
-    apt-get install -yq --no-install-recommends ca-certificates tini && \
+    apt-get install -yq --no-install-recommends ca-certificates ffmpeg tini && \
     apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
