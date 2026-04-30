@@ -24,12 +24,28 @@ function formatTime(seconds: number): string {
   return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
+function findChapterIndex(chapters: Chapter[], ms: number): number {
+  for (let i = 0; i < chapters.length; i++) {
+    const c = chapters[i]
+    if (ms >= c.start && ms < c.end) return i
+  }
+  return -1
+}
+
 function EpisodePlayer({ episode }: { episode: Episode }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isLoaded, setIsLoaded] = useState(false)
+
+  const chapters = episode.chapters ?? []
+  const hasChapters = chapters.length > 0
+  const [seekMode, setSeekMode] = useState<'chapter' | 'timeline'>(
+    hasChapters ? 'chapter' : 'timeline',
+  )
+  const [selectedChapterIndex, setSelectedChapterIndex] = useState(0)
+  const prevChapterIndexRef = useRef<number>(-1)
 
   const togglePlayPause = () => {
     const audio = audioRef.current
@@ -101,6 +117,33 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
 
   const currentTimeMs = currentTime * 1000
 
+  useEffect(() => {
+    if (!hasChapters || seekMode !== 'chapter') {
+      prevChapterIndexRef.current = -1
+      return
+    }
+    const playingIdx = findChapterIndex(chapters, currentTimeMs)
+    if (
+      prevChapterIndexRef.current === selectedChapterIndex &&
+      playingIdx !== -1 &&
+      playingIdx !== selectedChapterIndex
+    ) {
+      setSelectedChapterIndex(playingIdx)
+    }
+    prevChapterIndexRef.current = playingIdx
+  }, [currentTimeMs, hasChapters, seekMode, selectedChapterIndex, chapters])
+
+  const toggleSeekMode = () => {
+    setSeekMode((prev) => {
+      const next = prev === 'chapter' ? 'timeline' : 'chapter'
+      if (next === 'chapter' && hasChapters) {
+        const idx = findChapterIndex(chapters, currentTimeMs)
+        setSelectedChapterIndex(idx >= 0 ? idx : 0)
+      }
+      return next
+    })
+  }
+
   return (
     <div className="space-y-6">
       <audio
@@ -157,20 +200,102 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
           </button>
         </div>
 
-        <div className="space-y-2">
-          <Slider
-            value={[currentTime]}
-            max={duration || 100}
-            step={1}
-            onValueChange={handleSeek}
-            disabled={!isLoaded || !Number.isFinite(duration)}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+        {hasChapters && seekMode === 'chapter' ? (
+          (() => {
+            const chap = chapters[selectedChapterIndex]
+            const min = chap.start / 1000
+            const max = chap.end / 1000
+            const inRange = currentTime >= min && currentTime < max
+            const sliderValue = inRange ? currentTime : min
+            const isFirst = selectedChapterIndex === 0
+            const isLast = selectedChapterIndex >= chapters.length - 1
+            return (
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedChapterIndex((i) => Math.max(0, i - 1))
+                    }
+                    disabled={isFirst}
+                    aria-label="Previous chapter"
+                    title="Previous chapter"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
+                  >
+                    ‹
+                  </button>
+                  <Slider
+                    min={min}
+                    max={max}
+                    step={1}
+                    value={[sliderValue]}
+                    onValueChange={handleSeek}
+                    disabled={!isLoaded}
+                    className={`w-full ${
+                      inRange ? '' : '[&_[data-slot=slider-thumb]]:invisible'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedChapterIndex((i) =>
+                        Math.min(chapters.length - 1, i + 1),
+                      )
+                    }
+                    disabled={isLast}
+                    aria-label="Next chapter"
+                    title="Next chapter"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
+                  >
+                    ›
+                  </button>
+                </div>
+                <p className="truncate text-center text-xs text-muted-foreground">
+                  {chap.title || formatTimestamp(chap.start)}
+                </p>
+                <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+                  <span>{formatTime(sliderValue)}</span>
+                  <span>{formatTime(max)}</span>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={toggleSeekMode}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Show full timeline
+                  </button>
+                </div>
+              </div>
+            )
+          })()
+        ) : (
+          <div className="space-y-2">
+            <Slider
+              value={[currentTime]}
+              max={duration || 100}
+              step={1}
+              onValueChange={handleSeek}
+              disabled={!isLoaded || !Number.isFinite(duration)}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+            {hasChapters && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={toggleSeekMode}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Show chapter view
+                </button>
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {episode.chapters && episode.chapters.length > 0 ? (
