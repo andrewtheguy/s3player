@@ -41,7 +41,5 @@ cd frontend && bun run dev            # frontend on :5173 (proxies /api → :800
 
 ## Conventions
 
-- Python target: 3.12. Ruff `line-length = 100`.
-- Frontend formatter (biome): 2-space indent, single quotes, no semicolons. Match this when editing `.ts`/`.tsx`.
-- `noNonNullAssertion` is intentionally disabled in biome — leaving the React 18+ `getElementById('root')!` entrypoint pattern alone.
+- Python target: 3.12.
 - Configs live in `pyproject.toml` (`[tool.ruff]`, `[tool.basedpyright]`) and `frontend/biome.json`.

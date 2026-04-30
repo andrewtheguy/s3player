@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 
-type S3Object = {
-  key: string
+type S3File = {
+  name: string
   size: number
   last_modified: string
 }
 
 type ListResponse = {
-  prefixes: string[]
-  objects: S3Object[]
+  directories: string[]
+  files: S3File[]
 }
 
 function formatSize(bytes: number): string {
@@ -52,21 +52,21 @@ function App() {
       {!listError && !listing && <p>loading…</p>}
       {listing && (
         <>
-          {listing.prefixes.length === 0 && listing.objects.length === 0 && (
+          {listing.directories.length === 0 && listing.files.length === 0 && (
             <p>
               <em>(empty)</em>
             </p>
           )}
-          {listing.prefixes.length > 0 && (
+          {listing.directories.length > 0 && (
             <ul>
-              {listing.prefixes.map((p) => (
-                <li key={p}>
-                  <strong>{p}</strong>
+              {listing.directories.map((d) => (
+                <li key={d}>
+                  <strong>{d}/</strong>
                 </li>
               ))}
             </ul>
           )}
-          {listing.objects.length > 0 && (
+          {listing.files.length > 0 && (
             <table style={{ borderCollapse: 'collapse', marginTop: '0.5rem' }}>
               <thead>
                 <tr>
@@ -76,7 +76,7 @@ function App() {
                       padding: '0.25rem 1rem 0.25rem 0',
                     }}
                   >
-                    key
+                    name
                   </th>
                   <th
                     style={{
@@ -92,10 +92,10 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {listing.objects.map((o) => (
-                  <tr key={o.key}>
+                {listing.files.map((f) => (
+                  <tr key={f.name}>
                     <td style={{ padding: '0.25rem 1rem 0.25rem 0' }}>
-                      {o.key}
+                      {f.name}
                     </td>
                     <td
                       style={{
@@ -103,10 +103,10 @@ function App() {
                         padding: '0.25rem 1rem 0.25rem 0',
                       }}
                     >
-                      {formatSize(o.size)}
+                      {formatSize(f.size)}
                     </td>
                     <td style={{ padding: '0.25rem 0' }}>
-                      {new Date(o.last_modified).toLocaleString()}
+                      {new Date(f.last_modified).toLocaleString()}
                     </td>
                   </tr>
                 ))}

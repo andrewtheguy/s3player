@@ -10,15 +10,15 @@ from app.s3_client import get_s3_client
 router = APIRouter(prefix="/api/s3", tags=["s3"])
 
 
-class S3Object(BaseModel):
-    key: str
+class S3File(BaseModel):
+    name: str
     size: int
     last_modified: datetime
 
 
 class ListResponse(BaseModel):
-    prefixes: list[str]
-    objects: list[S3Object]
+    directories: list[str]
+    files: list[S3File]
 
 
 @router.get("/list")
@@ -30,13 +30,13 @@ def list_top() -> ListResponse:
     except ClientError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-    prefixes = [p["Prefix"] for p in response.get("CommonPrefixes", [])]
-    objects = [
-        S3Object(
-            key=item["Key"],
+    directories = [p["Prefix"].rstrip("/") for p in response.get("CommonPrefixes", [])]
+    files = [
+        S3File(
+            name=item["Key"],
             size=item["Size"],
             last_modified=item["LastModified"],
         )
         for item in response.get("Contents", [])
     ]
-    return ListResponse(prefixes=prefixes, objects=objects)
+    return ListResponse(directories=directories, files=files)
