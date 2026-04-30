@@ -53,7 +53,7 @@ RETURNING id
 """
 
 
-async def _bootstrap_schema(conn: PoolConnectionProxy[Any]) -> None:
+async def _bootstrap_schema(conn: PoolConnectionProxy) -> None:
     async with conn.transaction():
         for stmt in _SCHEMA_STATEMENTS:
             await conn.execute(stmt)
@@ -69,7 +69,7 @@ def _list_keys(client: Any, bucket: str, prefix: str) -> list[str]:
 
 
 async def _index_one(
-    conn: PoolConnectionProxy[Any],
+    conn: PoolConnectionProxy,
     show_cache: dict[tuple[str, str], int],
     station: str,
     s3_key: str,
