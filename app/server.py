@@ -24,6 +24,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await close_pool()
 
 
+# Fail fast at import if any required env var is missing.
 get_settings()
 
 app = FastAPI(title="s3player", lifespan=lifespan)

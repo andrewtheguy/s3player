@@ -2,7 +2,7 @@ import html
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import COOKIE_MAX_AGE, COOKIE_NAME, expected_token, safe_next
@@ -67,17 +67,17 @@ def render(next_value: str = "/", error: str = "") -> str:
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(next: str = "/") -> HTMLResponse:
-    return HTMLResponse(render(next_value=safe_next(next)))
+def login_page(next_url: Annotated[str, Query(alias="next")] = "/") -> HTMLResponse:
+    return HTMLResponse(render(next_value=safe_next(next_url)))
 
 
 @router.post("/login", response_model=None)
 def login_submit(
     password: Annotated[str, Form()],
-    next: Annotated[str, Form()] = "/",
+    next_url: Annotated[str, Form(alias="next")] = "/",
 ) -> HTMLResponse | RedirectResponse:
     settings = get_settings()
-    target = safe_next(next)
+    target = safe_next(next_url)
     if not secrets.compare_digest(password, settings.site_password):
         return HTMLResponse(
             render(next_value=target, error="Wrong password."),
