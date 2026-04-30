@@ -45,7 +45,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         <div className="max-h-[28rem] overflow-y-auto rounded-md border">
           {episode.chapters.map((c) => (
             <button
-              key={`${c.start}-${c.end}-${c.title}`}
+              key={`${episode.id}-${c.start}-${c.end}-${c.title}`}
               type="button"
               onClick={() => jumpTo(c)}
               className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent"
