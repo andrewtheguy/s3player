@@ -1,3 +1,4 @@
+import io
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -105,6 +106,10 @@ def test_list_episodes_returns_rows(client: TestClient, mock_conn: AsyncMock) ->
             "aired_on": date(2026, 3, 22),
             "time_slot": "0000_0200",
             "s3_key": "shows/rthk/radio1/2026/03/22/20260322_0000_0200_我得你都得.m4a",
+            "chapters": [
+                {"title": "Intro", "start": 0, "end": 60000},
+                {"title": "Main", "start": 60000, "end": 7200000},
+            ],
         },
     ]
 
@@ -115,12 +120,33 @@ def test_list_episodes_returns_rows(client: TestClient, mock_conn: AsyncMock) ->
     assert body["episodes"][0]["id"] == 11
     assert body["episodes"][0]["aired_on"] == "2026-03-22"
     assert body["episodes"][0]["time_slot"] == "0000_0200"
+    assert body["episodes"][0]["chapters"] == [
+        {"title": "Intro", "start": 0, "end": 60000},
+        {"title": "Main", "start": 60000, "end": 7200000},
+    ]
 
     args, _ = mock_conn.fetch.call_args
     assert args[1] == "rthk-radio1"
     assert args[2] == "我得你都得"
     assert args[3] == date(2026, 3, 1)
     assert args[4] == date(2026, 4, 1)
+
+
+def test_list_episodes_chapters_null(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetch.return_value = [
+        {
+            "id": 12,
+            "aired_on": date(2026, 3, 22),
+            "time_slot": None,
+            "s3_key": "k.m4a",
+            "chapters": None,
+        }
+    ]
+
+    response = client.get("/api/shows/stations/rthk-radio1/shows/x/months/2026/3/episodes")
+
+    assert response.status_code == 200
+    assert response.json()["episodes"][0]["chapters"] is None
 
 
 def test_list_episodes_december_wraps_year(client: TestClient, mock_conn: AsyncMock) -> None:
@@ -140,47 +166,85 @@ def test_list_episodes_invalid_month_422(client: TestClient, mock_conn: AsyncMoc
     assert response.status_code == 422
 
 
-def test_episode_url_404_when_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+def test_audio_404_when_episode_missing(client: TestClient, mock_conn: AsyncMock) -> None:
     mock_conn.fetchval.return_value = None
 
-    response = client.get("/api/shows/episodes/999/url")
+    response = client.get("/api/shows/episodes/999/audio")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "episode not found"
 
 
-def test_episode_url_returns_presigned(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchval.return_value = "shows/rthk/radio1/2026/03/22/20260322_0000_0200_x.m4a"
+def test_audio_streams_full_object(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk/radio1/x.m4a"
+    body = io.BytesIO(b"AUDIODATA" * 100)
     s3_mock = MagicMock()
-    s3_mock.generate_presigned_url.return_value = "https://signed.example/file?sig=abc"
+    s3_mock.get_object.return_value = {
+        "Body": body,
+        "ContentLength": 900,
+        "ContentType": "audio/mp4",
+    }
 
     with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
-        response = client.get("/api/shows/episodes/11/url")
+        response = client.get("/api/shows/episodes/11/audio")
 
     assert response.status_code == 200
-    body = response.json()
-    assert body == {"url": "https://signed.example/file?sig=abc", "expires_in": 86400}
-
-    s3_mock.generate_presigned_url.assert_called_once_with(
-        "get_object",
-        Params={
-            "Bucket": "test-bucket",
-            "Key": "shows/rthk/radio1/2026/03/22/20260322_0000_0200_x.m4a",
-        },
-        ExpiresIn=86400,
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-length"] == "900"
+    assert response.headers["content-type"] == "audio/mp4"
+    assert response.content == b"AUDIODATA" * 100
+    s3_mock.get_object.assert_called_once_with(
+        Bucket="test-bucket",
+        Key="shows/rthk/radio1/x.m4a",
     )
 
 
-def test_episode_url_502_on_client_error(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchval.return_value = "some/key.m4a"
+def test_audio_passes_range_and_returns_206(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    body = io.BytesIO(b"PARTIAL")
     s3_mock = MagicMock()
-    s3_mock.generate_presigned_url.side_effect = ClientError(
+    s3_mock.get_object.return_value = {
+        "Body": body,
+        "ContentLength": 7,
+        "ContentRange": "bytes 0-6/900",
+    }
+
+    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/audio", headers={"Range": "bytes=0-6"})
+
+    assert response.status_code == 206
+    assert response.headers["content-range"] == "bytes 0-6/900"
+    assert response.headers["content-length"] == "7"
+    assert response.content == b"PARTIAL"
+
+    _, kwargs = s3_mock.get_object.call_args
+    assert kwargs["Range"] == "bytes=0-6"
+
+
+def test_audio_invalid_range_returns_416(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    s3_mock = MagicMock()
+    s3_mock.get_object.side_effect = ClientError(
+        {"Error": {"Code": "InvalidRange", "Message": "out of bounds"}},
+        "GetObject",
+    )
+
+    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/audio", headers={"Range": "bytes=99999-"})
+
+    assert response.status_code == 416
+
+
+def test_audio_other_client_error_502(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    s3_mock = MagicMock()
+    s3_mock.get_object.side_effect = ClientError(
         {"Error": {"Code": "AccessDenied", "Message": "boom"}},
         "GetObject",
     )
 
     with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
-        response = client.get("/api/shows/episodes/11/url")
+        response = client.get("/api/shows/episodes/11/audio")
 
     assert response.status_code == 502
     assert "AccessDenied" in response.json()["detail"]

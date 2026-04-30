@@ -1,9 +1,12 @@
+import asyncio
+from collections.abc import Iterator
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from asyncpg.pool import PoolConnectionProxy
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.config import get_settings
@@ -12,7 +15,8 @@ from app.s3_client import get_s3_client
 
 router = APIRouter(prefix="/api/shows", tags=["shows"])
 
-PRESIGN_EXPIRES_IN = 86400
+AUDIO_CHUNK_SIZE = 64 * 1024
+AUDIO_CONTENT_TYPE = "audio/mp4"
 
 
 class Station(BaseModel):
@@ -44,20 +48,22 @@ class MonthsResponse(BaseModel):
     months: list[MonthBucket]
 
 
+class Chapter(BaseModel):
+    title: str
+    start: int
+    end: int
+
+
 class Episode(BaseModel):
     id: int
     aired_on: date
     time_slot: str | None
     s3_key: str
+    chapters: list[Chapter] | None
 
 
 class EpisodesResponse(BaseModel):
     episodes: list[Episode]
-
-
-class PresignedUrlResponse(BaseModel):
-    url: str
-    expires_in: int
 
 
 def _db_error(e: Exception) -> HTTPException:
@@ -144,7 +150,7 @@ async def list_episodes(
     end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     try:
         rows = await conn.fetch(
-            "SELECT e.id, e.aired_on, e.time_slot, e.s3_key "
+            "SELECT e.id, e.aired_on, e.time_slot, e.s3_key, e.chapters "
             "FROM episodes e JOIN shows s ON s.id = e.show_id "
             "WHERE s.station = $1 AND s.name = $2 "
             "AND e.aired_on >= $3 AND e.aired_on < $4 "
@@ -163,17 +169,30 @@ async def list_episodes(
                 aired_on=r["aired_on"],
                 time_slot=r["time_slot"],
                 s3_key=r["s3_key"],
+                chapters=r["chapters"],
             )
             for r in rows
         ]
     )
 
 
-@router.get("/episodes/{episode_id}/url")
-async def get_episode_url(
+def _stream_body(body: Any) -> Iterator[bytes]:
+    try:
+        while True:
+            chunk = body.read(AUDIO_CHUNK_SIZE)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        body.close()
+
+
+@router.get("/episodes/{episode_id}/audio")
+async def stream_episode_audio(
     episode_id: int,
+    request: Request,
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
-) -> PresignedUrlResponse:
+) -> StreamingResponse:
     try:
         s3_key = await conn.fetchval("SELECT s3_key FROM episodes WHERE id = $1", episode_id)
     except Exception as e:
@@ -183,12 +202,31 @@ async def get_episode_url(
 
     settings = get_settings()
     client = get_s3_client()
+    range_header = request.headers.get("range")
+    get_kwargs: dict[str, Any] = {"Bucket": settings.s3_bucket, "Key": s3_key}
+    if range_header:
+        get_kwargs["Range"] = range_header
+
     try:
-        url = client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.s3_bucket, "Key": s3_key},
-            ExpiresIn=PRESIGN_EXPIRES_IN,
-        )
+        s3_response = await asyncio.to_thread(client.get_object, **get_kwargs)
     except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "") if e.response else ""
+        if code in {"InvalidRange", "InvalidArgument"}:
+            raise HTTPException(status_code=416, detail="range not satisfiable") from e
+        if code in {"NoSuchKey", "404"}:
+            raise HTTPException(status_code=404, detail="audio not found") from e
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return PresignedUrlResponse(url=url, expires_in=PRESIGN_EXPIRES_IN)
+
+    headers: dict[str, str] = {"Accept-Ranges": "bytes"}
+    if "ContentLength" in s3_response:
+        headers["Content-Length"] = str(s3_response["ContentLength"])
+    if "ContentRange" in s3_response:
+        headers["Content-Range"] = s3_response["ContentRange"]
+
+    status_code = 206 if range_header else 200
+    return StreamingResponse(
+        _stream_body(s3_response["Body"]),
+        status_code=status_code,
+        headers=headers,
+        media_type=AUDIO_CONTENT_TYPE,
+    )
