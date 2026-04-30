@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-Instructions for Claude Code when working in this repo.
+# AI Agent Instructions
 
 No backward compatibility or migration path for simplicity.
 

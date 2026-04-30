@@ -52,17 +52,19 @@ export interface MonthsResponse {
   months: MonthBucket[]
 }
 
+export interface Chapter {
+  title: string
+  start: number
+  end: number
+}
+
 export interface Episode {
   id: number
   aired_on: string
   time_slot: string | null
   s3_key: string
+  chapters: Chapter[] | null
 }
 export interface EpisodesResponse {
   episodes: Episode[]
-}
-
-export interface PresignedUrlResponse {
-  url: string
-  expires_in: number
 }

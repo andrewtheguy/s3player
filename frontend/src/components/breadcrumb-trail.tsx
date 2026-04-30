@@ -18,7 +18,14 @@ type Params = {
   show?: string
   year?: string
   month?: string
+  day?: string
+  episodeFile?: string
 } & Record<string, string | undefined>
+
+function formatDateSegment(value: string): string {
+  const n = Number(value)
+  return Number.isInteger(n) ? String(n).padStart(2, '0') : value
+}
 
 function buildCrumbs(params: Params): Crumb[] {
   const crumbs: Crumb[] = [{ label: 'Shows', href: '/shows' }]
@@ -36,9 +43,17 @@ function buildCrumbs(params: Params): Crumb[] {
   const yearHref = `${showHref}/${params.year}`
   crumbs.push({ label: params.year, href: yearHref })
   if (params.month) {
+    const month = formatDateSegment(params.month)
     crumbs.push({
-      label: String(params.month).padStart(2, '0'),
+      label: month,
+      href: params.episodeFile ? `${yearHref}/${month}` : undefined,
     })
+  }
+  if (params.day) {
+    crumbs.push({ label: formatDateSegment(params.day) })
+  }
+  if (params.episodeFile) {
+    crumbs.push({ label: params.episodeFile })
   }
   return crumbs
 }
@@ -54,12 +69,14 @@ export function BreadcrumbTrail() {
           return (
             <span key={crumb.href ?? crumb.label} className="contents">
               <BreadcrumbItem>
-                {isLast || !crumb.href ? (
+                {isLast ? (
                   <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
-                ) : (
+                ) : crumb.href ? (
                   <BreadcrumbLink asChild>
                     <Link to={crumb.href}>{crumb.label}</Link>
                   </BreadcrumbLink>
+                ) : (
+                  <span>{crumb.label}</span>
                 )}
               </BreadcrumbItem>
               {!isLast && <BreadcrumbSeparator />}

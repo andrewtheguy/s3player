@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Play } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -9,12 +9,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { UrlDialog } from '@/components/url-dialog'
+import type { EpisodesResponse } from '@/lib/api'
 import {
-  apiFetch,
-  type EpisodesResponse,
-  type PresignedUrlResponse,
-} from '@/lib/api'
+  buildEpisodePagePath,
+  parseTwoDigitPathSegment,
+} from '@/lib/episode-path'
 import { useFetch } from '@/lib/use-fetch'
 
 function formatTimeSlot(slot: string | null): string {
@@ -31,26 +30,15 @@ export function EpisodesPage() {
     year: string
     month: string
   }>()
-  const url = `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${month}/episodes`
+  const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
+  const url =
+    monthSegment === null
+      ? null
+      : `/api/shows/stations/${encodeURIComponent(station ?? '')}/shows/${encodeURIComponent(show ?? '')}/months/${year}/${monthSegment}/episodes`
   const { data, error, loading } = useFetch<EpisodesResponse>(url)
 
-  const [dialogUrl, setDialogUrl] = useState<string | null>(null)
-  const [pendingId, setPendingId] = useState<number | null>(null)
-  const [requestError, setRequestError] = useState<string | null>(null)
-
-  async function fetchUrl(episodeId: number) {
-    setPendingId(episodeId)
-    setRequestError(null)
-    try {
-      const res = await apiFetch<PresignedUrlResponse>(
-        `/api/shows/episodes/${episodeId}/url`,
-      )
-      setDialogUrl(res.url)
-    } catch (e: unknown) {
-      setRequestError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setPendingId(null)
-    }
+  if (monthSegment === null) {
+    return <p className="text-muted-foreground">Invalid month.</p>
   }
 
   if (loading) return <p className="text-muted-foreground">Loading episodes…</p>
@@ -62,19 +50,15 @@ export function EpisodesPage() {
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-        {decodeURIComponent(show ?? '')} — {year}-
-        {String(month).padStart(2, '0')}
+        {decodeURIComponent(show ?? '')} — {year}-{monthSegment}
       </h1>
-      {requestError && (
-        <p className="mb-4 text-destructive">URL error: {requestError}</p>
-      )}
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Date</TableHead>
               <TableHead>Time</TableHead>
-              <TableHead className="hidden sm:table-cell">S3 key</TableHead>
+              <TableHead className="hidden sm:table-cell">Chapters</TableHead>
               <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
@@ -85,18 +69,17 @@ export function EpisodesPage() {
                 <TableCell className="text-muted-foreground">
                   {formatTimeSlot(ep.time_slot)}
                 </TableCell>
-                <TableCell className="hidden sm:table-cell">
-                  <code className="text-xs text-muted-foreground">
-                    {ep.s3_key}
-                  </code>
+                <TableCell className="hidden text-muted-foreground sm:table-cell">
+                  {ep.chapters?.length ?? 0}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    onClick={() => fetchUrl(ep.id)}
-                    disabled={pendingId === ep.id}
-                  >
-                    {pendingId === ep.id ? 'Fetching…' : 'Get URL'}
+                  <Button size="sm" asChild>
+                    <Link
+                      to={buildEpisodePagePath(ep, station ?? '', show ?? '')}
+                    >
+                      <Play aria-hidden />
+                      Play
+                    </Link>
                   </Button>
                 </TableCell>
               </TableRow>
@@ -104,7 +87,6 @@ export function EpisodesPage() {
           </TableBody>
         </Table>
       </div>
-      <UrlDialog url={dialogUrl} onClose={() => setDialogUrl(null)} />
     </div>
   )
 }
