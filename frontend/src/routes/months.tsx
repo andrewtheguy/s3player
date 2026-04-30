@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import type { MonthsResponse } from '@/lib/api'
+import { formatTwoDigit } from '@/lib/episode-path'
 import { useFetch } from '@/lib/use-fetch'
 
 const MONTH_NAMES = [
@@ -45,11 +46,11 @@ export function MonthsPage() {
         {months.map((m) => (
           <li key={`${m.year}-${m.month}`}>
             <Link
-              to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${m.year}/${m.month}`}
+              to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${m.year}/${formatTwoDigit(m.month)}`}
               className="block rounded-lg border bg-card p-5 transition-colors hover:bg-accent"
             >
               <div className="font-medium">
-                {String(m.month).padStart(2, '0')}-{MONTH_NAMES[m.month - 1]}
+                {formatTwoDigit(m.month)}-{MONTH_NAMES[m.month - 1]}
               </div>
               <div className="text-sm text-muted-foreground">
                 {m.episode_count}{' '}
