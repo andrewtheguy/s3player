@@ -12,9 +12,10 @@ export function parseTwoDigitPathSegment(
   max: number,
 ): string | null {
   if (!value) return null
+  if (!/^\d{2}$/.test(value)) return null
   const n = Number(value)
   if (!Number.isInteger(n) || n < min || n > max) return null
-  return formatTwoDigit(n)
+  return value
 }
 
 export function getEpisodeFileName(episode: Pick<Episode, 's3_key'>): string {

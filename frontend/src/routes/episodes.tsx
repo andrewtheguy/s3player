@@ -1,5 +1,5 @@
 import { Play } from 'lucide-react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -31,8 +31,6 @@ export function EpisodesPage() {
     month: string
   }>()
   const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
-  const monthRedirect =
-    monthSegment !== null && month !== monthSegment ? monthSegment : null
   const url =
     monthSegment === null
       ? null
@@ -41,15 +39,6 @@ export function EpisodesPage() {
 
   if (monthSegment === null) {
     return <p className="text-muted-foreground">Invalid month.</p>
-  }
-
-  if (monthRedirect) {
-    return (
-      <Navigate
-        replace
-        to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${monthRedirect}`}
-      />
-    )
   }
 
   if (loading) return <p className="text-muted-foreground">Loading episodes…</p>

@@ -1,6 +1,6 @@
 import { ChevronLeft } from 'lucide-react'
 import { useRef } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import type { Chapter, Episode, EpisodesResponse } from '@/lib/api'
 import {
@@ -77,10 +77,6 @@ export function PlayerPage() {
   }>()
   const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
   const daySegment = parseTwoDigitPathSegment(day, 1, 31)
-  const monthRedirect =
-    monthSegment !== null && month !== monthSegment ? monthSegment : null
-  const dayRedirect =
-    daySegment !== null && day !== daySegment ? daySegment : null
   const hasInvalidDateSegment = monthSegment === null || daySegment === null
   const listUrl = hasInvalidDateSegment
     ? null
@@ -90,15 +86,6 @@ export function PlayerPage() {
 
   if (hasInvalidDateSegment) {
     return <p className="text-muted-foreground">Episode not found.</p>
-  }
-
-  if (monthRedirect || dayRedirect) {
-    return (
-      <Navigate
-        replace
-        to={`/shows/${encodeURIComponent(station ?? '')}/${encodeURIComponent(show ?? '')}/${year}/${monthRedirect ?? monthSegment}/${dayRedirect ?? daySegment}/${encodeURIComponent(episodeFile ?? '')}`}
-      />
-    )
   }
 
   if (loading) return <p className="text-muted-foreground">Loading player…</p>
