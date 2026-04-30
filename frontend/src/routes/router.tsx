@@ -15,19 +15,13 @@ export function AppRouter() {
   return (
     <Routes>
       <Route element={<RootLayout />}>
-        <Route index element={<Navigate to="/shows" replace />} />
-        <Route path="shows" element={<StationsPage />} />
-        <Route path="shows/:station" element={<ShowsPage />} />
-        <Route path="shows/:station/:show" element={<YearsPage />} />
-        <Route path="shows/:station/:show/:year" element={<MonthsPage />} />
-        <Route
-          path="shows/:station/:show/:year/:month/:day/:episodeFile"
-          element={<PlayerPage />}
-        />
-        <Route
-          path="shows/:station/:show/:year/:month"
-          element={<EpisodesPage />}
-        />
+        <Route index element={<Navigate to="/stations" replace />} />
+        <Route path="stations" element={<StationsPage />} />
+        <Route path="stations/:station" element={<ShowsPage />} />
+        <Route path="shows/:show_id" element={<YearsPage />} />
+        <Route path="shows/:show_id/:year" element={<MonthsPage />} />
+        <Route path="shows/:show_id/:year/:month" element={<EpisodesPage />} />
+        <Route path="player/:episode_id" element={<PlayerPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

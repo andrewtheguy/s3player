@@ -69,10 +69,38 @@ def test_list_shows_empty_station(client: TestClient, mock_conn: AsyncMock) -> N
     assert response.json() == {"shows": []}
 
 
-def test_list_months_404_when_show_missing(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchval.return_value = None
+def test_get_show_returns_detail(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "我得你都得",
+        "episode_count": 12,
+    }
 
-    response = client.get("/api/shows/stations/rthk-radio1/shows/nope/months")
+    response = client.get("/api/shows/7")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "我得你都得",
+        "episode_count": 12,
+    }
+
+
+def test_get_show_404_when_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = None
+
+    response = client.get("/api/shows/999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "show not found"
+
+
+def test_list_months_404_when_show_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = None
+
+    response = client.get("/api/shows/999/months")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "show not found"
@@ -80,26 +108,43 @@ def test_list_months_404_when_show_missing(client: TestClient, mock_conn: AsyncM
 
 
 def test_list_months_returns_buckets(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchval.return_value = 7
+    mock_conn.fetchrow.return_value = {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "我得你都得",
+        "episode_count": 21,
+    }
     mock_conn.fetch.return_value = [
         {"year": 2026, "month": 4, "episode_count": 12},
         {"year": 2026, "month": 3, "episode_count": 9},
     ]
 
-    response = client.get("/api/shows/stations/rthk-radio1/shows/我得你都得/months")
+    response = client.get("/api/shows/7/months")
 
     assert response.status_code == 200
     assert response.json() == {
+        "show": {
+            "id": 7,
+            "station": "rthk-radio1",
+            "name": "我得你都得",
+            "episode_count": 21,
+        },
         "months": [
             {"year": 2026, "month": 4, "episode_count": 12},
             {"year": 2026, "month": 3, "episode_count": 9},
-        ]
+        ],
     }
     fetch_args, _ = mock_conn.fetch.call_args
     assert fetch_args[1] == 7
 
 
 def test_list_episodes_returns_rows(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "我得你都得",
+        "episode_count": 1,
+    }
     mock_conn.fetch.return_value = [
         {
             "id": 11,
@@ -113,10 +158,12 @@ def test_list_episodes_returns_rows(client: TestClient, mock_conn: AsyncMock) ->
         },
     ]
 
-    response = client.get("/api/shows/stations/rthk-radio1/shows/我得你都得/months/2026/3/episodes")
+    response = client.get("/api/shows/7/months/2026/3/episodes")
 
     assert response.status_code == 200
     body = response.json()
+    assert body["show"]["id"] == 7
+    assert body["show"]["station"] == "rthk-radio1"
     assert body["episodes"][0]["id"] == 11
     assert body["episodes"][0]["aired_on"] == "2026-03-22"
     assert body["episodes"][0]["time_slot"] == "0000_0200"
@@ -126,13 +173,18 @@ def test_list_episodes_returns_rows(client: TestClient, mock_conn: AsyncMock) ->
     ]
 
     args, _ = mock_conn.fetch.call_args
-    assert args[1] == "rthk-radio1"
-    assert args[2] == "我得你都得"
-    assert args[3] == date(2026, 3, 1)
-    assert args[4] == date(2026, 4, 1)
+    assert args[1] == 7
+    assert args[2] == date(2026, 3, 1)
+    assert args[3] == date(2026, 4, 1)
 
 
 def test_list_episodes_chapters_null(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 1,
+        "station": "rthk-radio1",
+        "name": "x",
+        "episode_count": 1,
+    }
     mock_conn.fetch.return_value = [
         {
             "id": 12,
@@ -143,27 +195,70 @@ def test_list_episodes_chapters_null(client: TestClient, mock_conn: AsyncMock) -
         }
     ]
 
-    response = client.get("/api/shows/stations/rthk-radio1/shows/x/months/2026/3/episodes")
+    response = client.get("/api/shows/1/months/2026/3/episodes")
 
     assert response.status_code == 200
     assert response.json()["episodes"][0]["chapters"] is None
 
 
 def test_list_episodes_december_wraps_year(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 1,
+        "station": "rthk-radio1",
+        "name": "x",
+        "episode_count": 0,
+    }
     mock_conn.fetch.return_value = []
 
-    response = client.get("/api/shows/stations/rthk-radio1/shows/x/months/2026/12/episodes")
+    response = client.get("/api/shows/1/months/2026/12/episodes")
 
     assert response.status_code == 200
     args, _ = mock_conn.fetch.call_args
-    assert args[3] == date(2026, 12, 1)
-    assert args[4] == date(2027, 1, 1)
+    assert args[2] == date(2026, 12, 1)
+    assert args[3] == date(2027, 1, 1)
 
 
 def test_list_episodes_invalid_month_422(client: TestClient, mock_conn: AsyncMock) -> None:
     del mock_conn
-    response = client.get("/api/shows/stations/rthk-radio1/shows/x/months/2026/13/episodes")
+    response = client.get("/api/shows/1/months/2026/13/episodes")
     assert response.status_code == 422
+
+
+def test_get_episode_returns_detail(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 11,
+        "aired_on": date(2026, 3, 22),
+        "time_slot": "0000_0200",
+        "s3_key": "shows/rthk/radio1/k.m4a",
+        "chapters": [{"title": "Intro", "start": 0, "end": 60000}],
+        "show_id": 7,
+        "station": "rthk-radio1",
+        "show_name": "我得你都得",
+        "show_episode_count": 21,
+    }
+
+    response = client.get("/api/shows/episodes/11")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == 11
+    assert body["aired_on"] == "2026-03-22"
+    assert body["chapters"] == [{"title": "Intro", "start": 0, "end": 60000}]
+    assert body["show"] == {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "我得你都得",
+        "episode_count": 21,
+    }
+
+
+def test_get_episode_404_when_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = None
+
+    response = client.get("/api/shows/episodes/999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "episode not found"
 
 
 def test_audio_404_when_episode_missing(client: TestClient, mock_conn: AsyncMock) -> None:

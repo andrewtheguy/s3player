@@ -38,6 +38,13 @@ class ShowsResponse(BaseModel):
     shows: list[Show]
 
 
+class ShowDetail(BaseModel):
+    id: int
+    station: str
+    name: str
+    episode_count: int
+
+
 class MonthBucket(BaseModel):
     year: int
     month: int
@@ -45,6 +52,7 @@ class MonthBucket(BaseModel):
 
 
 class MonthsResponse(BaseModel):
+    show: ShowDetail
     months: list[MonthBucket]
 
 
@@ -63,7 +71,17 @@ class Episode(BaseModel):
 
 
 class EpisodesResponse(BaseModel):
+    show: ShowDetail
     episodes: list[Episode]
+
+
+class EpisodeDetail(BaseModel):
+    id: int
+    aired_on: date
+    time_slot: str | None
+    s3_key: str
+    chapters: list[Chapter] | None
+    show: ShowDetail
 
 
 def _db_error(e: Exception) -> HTTPException:
@@ -107,18 +125,44 @@ async def list_shows(
     )
 
 
-@router.get("/stations/{station}/shows/{show}/months")
+async def _fetch_show_detail(conn: PoolConnectionProxy, show_id: int) -> ShowDetail:
+    row = await conn.fetchrow(
+        "SELECT s.id, s.station, s.name, "
+        "COUNT(e.id) FILTER (WHERE e.deleted = FALSE)::int AS episode_count "
+        "FROM shows s LEFT JOIN episodes e ON e.show_id = s.id "
+        "WHERE s.id = $1 GROUP BY s.id, s.station, s.name",
+        show_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="show not found")
+    return ShowDetail(
+        id=row["id"],
+        station=row["station"],
+        name=row["name"],
+        episode_count=row["episode_count"],
+    )
+
+
+@router.get("/{show_id}")
+async def get_show(
+    show_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> ShowDetail:
+    try:
+        return await _fetch_show_detail(conn, show_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _db_error(e) from e
+
+
+@router.get("/{show_id}/months")
 async def list_months(
-    station: Annotated[str, Path(min_length=1)],
-    show: Annotated[str, Path(min_length=1)],
+    show_id: Annotated[int, Path(ge=1)],
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> MonthsResponse:
     try:
-        show_id = await conn.fetchval(
-            "SELECT id FROM shows WHERE station = $1 AND name = $2", station, show
-        )
-        if show_id is None:
-            raise HTTPException(status_code=404, detail="show not found")
+        show = await _fetch_show_detail(conn, show_id)
         rows = await conn.fetch(
             "SELECT EXTRACT(YEAR FROM aired_on)::int AS year, "
             "EXTRACT(MONTH FROM aired_on)::int AS month, "
@@ -132,17 +176,17 @@ async def list_months(
     except Exception as e:
         raise _db_error(e) from e
     return MonthsResponse(
+        show=show,
         months=[
             MonthBucket(year=r["year"], month=r["month"], episode_count=r["episode_count"])
             for r in rows
-        ]
+        ],
     )
 
 
-@router.get("/stations/{station}/shows/{show}/months/{year}/{month}/episodes")
+@router.get("/{show_id}/months/{year}/{month}/episodes")
 async def list_episodes(
-    station: Annotated[str, Path(min_length=1)],
-    show: Annotated[str, Path(min_length=1)],
+    show_id: Annotated[int, Path(ge=1)],
     year: Annotated[int, Path(ge=1900, le=2999)],
     month: Annotated[int, Path(ge=1, le=12)],
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
@@ -150,21 +194,23 @@ async def list_episodes(
     start = date(year, month, 1)
     end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     try:
+        show = await _fetch_show_detail(conn, show_id)
         rows = await conn.fetch(
-            "SELECT e.id, e.aired_on, e.time_slot, e.s3_key, e.chapters "
-            "FROM episodes e JOIN shows s ON s.id = e.show_id "
-            "WHERE s.station = $1 AND s.name = $2 "
-            "AND e.aired_on >= $3 AND e.aired_on < $4 "
-            "AND e.deleted = FALSE "
-            "ORDER BY e.aired_on, e.time_slot NULLS LAST",
-            station,
-            show,
+            "SELECT id, aired_on, time_slot, s3_key, chapters "
+            "FROM episodes "
+            "WHERE show_id = $1 AND aired_on >= $2 AND aired_on < $3 "
+            "AND deleted = FALSE "
+            "ORDER BY aired_on, time_slot NULLS LAST",
+            show_id,
             start,
             end,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise _db_error(e) from e
     return EpisodesResponse(
+        show=show,
         episodes=[
             Episode(
                 id=r["id"],
@@ -174,7 +220,42 @@ async def list_episodes(
                 chapters=r["chapters"],
             )
             for r in rows
-        ]
+        ],
+    )
+
+
+@router.get("/episodes/{episode_id}")
+async def get_episode(
+    episode_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> EpisodeDetail:
+    try:
+        row = await conn.fetchrow(
+            "SELECT e.id, e.aired_on, e.time_slot, e.s3_key, e.chapters, "
+            "s.id AS show_id, s.station, s.name AS show_name, "
+            "(SELECT COUNT(*) FROM episodes e2 "
+            " WHERE e2.show_id = s.id AND e2.deleted = FALSE)::int "
+            "AS show_episode_count "
+            "FROM episodes e JOIN shows s ON s.id = e.show_id "
+            "WHERE e.id = $1 AND e.deleted = FALSE",
+            episode_id,
+        )
+    except Exception as e:
+        raise _db_error(e) from e
+    if row is None:
+        raise HTTPException(status_code=404, detail="episode not found")
+    return EpisodeDetail(
+        id=row["id"],
+        aired_on=row["aired_on"],
+        time_slot=row["time_slot"],
+        s3_key=row["s3_key"],
+        chapters=row["chapters"],
+        show=ShowDetail(
+            id=row["show_id"],
+            station=row["station"],
+            name=row["show_name"],
+            episode_count=row["show_episode_count"],
+        ),
     )
 
 
