@@ -229,8 +229,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   }, [isPlaying, sessionStatus, saveProgress])
 
   const handleTakeOver = useCallback(async () => {
-    await reclaim()
-  }, [reclaim])
+    const result = await reclaim()
+    if (result !== 'ok') {
+      console.error('Take over playback failed', {
+        episodeId: episode.id,
+        result,
+      })
+    }
+  }, [episode.id, reclaim])
 
   const toggleSeekMode = () => {
     setSeekMode((prev) => {
