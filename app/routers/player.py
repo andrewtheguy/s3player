@@ -68,6 +68,13 @@ WHERE id = 1 AND session_token = $1
 RETURNING 1
 """
 
+_GUARD_SQL = """
+SELECT 1
+FROM player_session
+WHERE id = 1 AND session_token = $1
+FOR UPDATE
+"""
+
 _PROGRESS_UPSERT_SQL = """
 INSERT INTO episode_play_state (episode_id, position_ms, duration_ms, last_played_at, completed)
 VALUES ($1, $2, $3, now(), $4)
@@ -122,6 +129,18 @@ async def _touch_session(
         raise HTTPException(status_code=409, detail="session displaced")
 
 
+async def _guard_session(conn: PoolConnectionProxy, session_token: str) -> None:
+    ok = await conn.fetchval(_GUARD_SQL, session_token)
+    if ok is None:
+        raise HTTPException(status_code=409, detail="session displaced")
+
+
+def _require_session_token(session_token: str | None) -> str:
+    if not session_token:
+        raise HTTPException(status_code=401, detail="missing session token")
+    return session_token
+
+
 @router.post("/session/claim")
 async def claim_session(
     body: ClaimRequest,
@@ -139,9 +158,8 @@ async def validate_session(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
-    if not x_player_session:
-        raise HTTPException(status_code=401, detail="missing session token")
-    await _touch_session(conn, x_player_session)
+    session_token = _require_session_token(x_player_session)
+    await _touch_session(conn, session_token)
     return {"status": "ok"}
 
 
@@ -152,12 +170,12 @@ async def save_progress(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
-    if not x_player_session:
-        raise HTTPException(status_code=401, detail="missing session token")
-    if not await _episode_exists(conn, episode_id):
-        raise HTTPException(status_code=404, detail="episode not found")
+    session_token = _require_session_token(x_player_session)
     async with conn.transaction():
-        await _touch_session(conn, x_player_session, episode_id)
+        await _guard_session(conn, session_token)
+        if not await _episode_exists(conn, episode_id):
+            raise HTTPException(status_code=404, detail="episode not found")
+        await _touch_session(conn, session_token, episode_id)
         await conn.execute(
             _PROGRESS_UPSERT_SQL,
             episode_id,
@@ -174,12 +192,12 @@ async def mark_complete(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
-    if not x_player_session:
-        raise HTTPException(status_code=401, detail="missing session token")
-    if not await _episode_exists(conn, episode_id):
-        raise HTTPException(status_code=404, detail="episode not found")
+    session_token = _require_session_token(x_player_session)
     async with conn.transaction():
-        await _touch_session(conn, x_player_session, episode_id)
+        await _guard_session(conn, session_token)
+        if not await _episode_exists(conn, episode_id):
+            raise HTTPException(status_code=404, detail="episode not found")
+        await _touch_session(conn, session_token, episode_id)
         existing_duration = await conn.fetchval(
             "SELECT duration_ms FROM episode_play_state WHERE episode_id = $1",
             episode_id,
