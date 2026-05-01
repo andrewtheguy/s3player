@@ -16,11 +16,11 @@ from app.auth import is_authenticated
 from app.config import get_settings
 from app.db import bootstrap_schema, close_pool, get_pool
 from app.routers import auth as auth_router
+from app.routers import internal as internal_router
 from app.routers import player as player_router
-from app.routers import s3 as s3_router
 from app.routers import shows as shows_router
 
-API_AUTH_EXEMPT: frozenset[str] = frozenset({"/api/health", "/api/auth/login"})
+API_AUTH_EXEMPT: frozenset[str] = frozenset({"/api/auth/login"})
 
 
 @asynccontextmanager
@@ -74,15 +74,10 @@ async def site_password_gate(
     )
 
 
+app.include_router(internal_router.router)
 app.include_router(auth_router.router)
-app.include_router(s3_router.router)
 app.include_router(shows_router.router)
 app.include_router(player_router.router)
-
-
-@app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
 
 
 class SPAStaticFiles(StaticFiles):

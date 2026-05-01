@@ -74,18 +74,30 @@ def _recent_episode(episode: player_state.RecentEpisode) -> RecentEpisode:
     )
 
 
-@router.post("/session/claim")
+@router.post("/session/claim", summary="Claim the active player session")
 async def claim_session(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> ClaimResponse:
+    """Claim the single active player session and displace any previous one.
+
+    There is exactly one active player session globally; calling this issues a
+    new `session_token` and invalidates the previously-issued token. Send the
+    returned token as `X-Player-Session` on every player write (progress,
+    complete) and on `validate`.
+    """
     return ClaimResponse(session_token=await player_state.claim_session(conn))
 
 
-@router.post("/session/validate")
+@router.post("/session/validate", summary="Check that the player session is still active")
 async def validate_session(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
+    """Confirm that the `X-Player-Session` token still owns the active session.
+
+    Returns 401 if the header is missing and 409 if the token has been
+    displaced by a later claim.
+    """
     session_token = _require_session_token(x_player_session)
     try:
         await player_state.validate_session(conn, session_token)
@@ -94,13 +106,18 @@ async def validate_session(
     return {"status": "ok"}
 
 
-@router.post("/episodes/{episode_id}/progress")
+@router.post("/episodes/{episode_id}/progress", summary="Save playback progress for an episode")
 async def save_progress(
     episode_id: Annotated[int, Path(ge=1)],
     body: ProgressRequest,
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
+    """Persist the current playback position (and optionally the total duration) for an episode.
+
+    Requires `X-Player-Session`. Returns 401 if the header is missing, 409 if
+    the token has been displaced, and 404 if the episode does not exist.
+    """
     session_token = _require_session_token(x_player_session)
     try:
         await player_state.save_progress(
@@ -117,12 +134,17 @@ async def save_progress(
     return {"status": "ok"}
 
 
-@router.post("/episodes/{episode_id}/complete")
+@router.post("/episodes/{episode_id}/complete", summary="Mark an episode as completed")
 async def mark_complete(
     episode_id: Annotated[int, Path(ge=1)],
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
+    """Mark an episode as fully played.
+
+    Requires `X-Player-Session`. Returns 401 if the header is missing, 409 if
+    the token has been displaced, and 404 if the episode does not exist.
+    """
     session_token = _require_session_token(x_player_session)
     try:
         await player_state.mark_complete(conn, session_token, episode_id)
@@ -133,27 +155,44 @@ async def mark_complete(
     return {"status": "ok"}
 
 
-@router.get("/episodes/{episode_id}/progress")
+@router.get(
+    "/episodes/{episode_id}/progress",
+    summary="Read saved playback progress for an episode",
+)
 async def get_progress(
     episode_id: Annotated[int, Path(ge=1)],
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> ProgressResponse:
+    """Return saved position, duration, completion flag, and last-played time for an episode.
+
+    If no progress has been recorded yet, position and completion default to
+    zero/false. Does not require a player session token.
+    """
     return _progress_response(await player_state.get_progress(conn, episode_id))
 
 
-@router.get("/recent")
+@router.get("/recent", summary="List recently completed episodes")
 async def list_recent(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> RecentResponse:
+    """List completed episodes ordered by most recent playback.
+
+    Mutually exclusive with `/in-progress`: an episode appears in one or the
+    other, never both.
+    """
     episodes = await player_state.list_recent(conn, limit)
     return RecentResponse(episodes=[_recent_episode(e) for e in episodes])
 
 
-@router.get("/in-progress")
+@router.get("/in-progress", summary="List episodes with resumable progress")
 async def list_in_progress(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> RecentResponse:
+    """List incomplete episodes that have enough saved duration and remaining time to resume.
+
+    Mutually exclusive with `/recent`.
+    """
     episodes = await player_state.list_in_progress(conn, limit)
     return RecentResponse(episodes=[_recent_episode(e) for e in episodes])

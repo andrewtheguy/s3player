@@ -35,12 +35,19 @@ The FastAPI lifespan handler opens the asyncpg pool and runs `bootstrap_schema`;
 `site_password_gate` is the single gate:
 
 - `/login` — always allowed (handled by `app.routers.auth`).
-- `/api/*` — require either the `s3player_auth` HMAC cookie or an `Authorization: Bearer <token>` header (both verified by `app.auth.is_authenticated`); unauthenticated → 401 JSON. Exempt: `/api/health`, `/api/auth/login`.
+- `/api/*` — require either the `s3player_auth` HMAC cookie or an `Authorization: Bearer <token>` header (both verified by `app.auth.is_authenticated`); unauthenticated → 401 JSON. Exempt: `/api/auth/login`.
 - Everything else (SPA routes) — unauthenticated → 303 redirect to `/login?next=…`.
 
 The auth token is a deterministic HMAC-SHA256 value derived from the shared site password and a fixed authentication message. Browsers receive it as a cookie via the HTML form login at `/login`; non-browser clients (mobile apps, CLIs, scripts) obtain the same token by `POST /api/auth/login` with `{"password": "..."}` and present it as `Authorization: Bearer <token>` on subsequent requests. The cookie settings live with the auth helper code. There is no per-user identity; it is a single shared password, and the token does not expire unless `SITE_PASSWORD` rotates.
 
 For standalone native, mobile, desktop, or CLI clients, the JSON API is sufficient without a CORS requirement: authenticate with `/api/auth/login`, send the bearer token on protected API requests, use the browse/detail/player endpoints for metadata and playback state, and use either the proxied audio stream endpoint or the presigned audio URL endpoint for media fetches.
+
+### Public vs internal API surface
+
+The split is by URL prefix:
+
+- **`/api/*` is the public API.** Every route is documented in OpenAPI (`/docs`, `/redoc`, `/openapi.json`) and is supported for third-party clients (mobile, desktop, CLI). New `/api/*` routes go in a topic-specific router (`auth.py`, `shows.py`, `player.py`, or a new public file) and must carry a docstring + `summary`.
+- **Everything else is internal.** Today that is just `GET /login` and `POST /login` — the HTML form and auth cookie creation for browsers. Internal routes live in `app/routers/internal.py`, whose router declares `include_in_schema=False` so they stay out of the OpenAPI document. New internal routes go in `internal.py` and must not use the `/api/` prefix.
 
 ### Production route protection
 
@@ -48,10 +55,8 @@ The production Python server enforces authentication in `site_password_gate` bef
 
 | Path | Site auth? | Player session token? | Notes |
 | --- | --- | --- | --- |
-| `GET /api/health` | No | No | Process health check. |
+| `GET /login`, `POST /login` | No | No | **Internal use only** — HTML login form and auth cookie creation for the SPA in browsers; not part of the public API and not documented in OpenAPI. Third-party clients should use `POST /api/auth/login` instead. |
 | `POST /api/auth/login` | No | No | Password-to-bearer-token login for non-browser clients. |
-| `GET /login`, `POST /login` | No | No | HTML login form and auth cookie creation. |
-| `/api/s3/*` | Yes | No | Debug/inspection S3 listing endpoints. |
 | `GET /api/shows/stations` | Yes | No | Lists stations. |
 | `GET /api/shows/stations/{station}/shows` | Yes | No | Lists shows for a station. |
 | `GET /api/shows/{show_id}` | Yes | No | Reads show detail. |
@@ -73,14 +78,14 @@ Site-auth-protected API routes accept either the `s3player_auth` cookie or `Auth
 
 ### Routers
 
-Public routers live under `app/routers/`. Postgres-backed request handlers get a connection with the shared `app.db.get_conn` dependency, which acquires from the global pool and releases on request end.
+Routers live under `app/routers/` and are split by visibility: one internal router holds every non-public route, and the rest are public, topic-specific routers. Postgres-backed request handlers get a connection with the shared `app.db.get_conn` dependency, which acquires from the global pool and releases on request end.
 
-| Router | Prefix | Purpose |
-| --- | --- | --- |
-| `auth.py` | `/login` | Form-based login and auth cookie creation. |
-| `s3.py` | `/api/s3` | Raw S3 listing (debug/inspection). |
-| `shows.py` | `/api/shows` | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
-| `player.py` | `/api/player` | HTTP adapter for session claim/validate, progress save, complete, recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
+| Router | Prefix | Visibility | Purpose |
+| --- | --- | --- | --- |
+| `internal.py` | (none) | Internal | HTML `/login` form and auth cookie creation. Router-level `include_in_schema=False`. |
+| `auth.py` | `/api/auth` | Public | `POST /api/auth/login` — site-password-to-bearer-token exchange for non-browser clients. |
+| `shows.py` | `/api/shows` | Public | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
+| `player.py` | `/api/player` | Public | HTTP adapter for session claim/validate, progress save, complete, recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
 
 ### Audio stream proxy
 
@@ -198,7 +203,6 @@ The two filters are mutually exclusive, so an episode should not appear in both.
 Current coverage includes:
 
 - `test_shows_router.py` — browse hierarchy, audio range requests (206/416).
-- `test_s3_router.py` — S3 listing endpoint.
 - `test_auth_router.py` — HTML login cookie flow, token login, bearer auth, and API auth failures.
 - `test_player_router.py` — session claim/validate, displacement handling, progress writes, completion writes, and progress defaults.
 - `test_parse_key.py`, `test_chapters.py` — pure-function unit tests for the indexer's parsing helpers.
