@@ -3,6 +3,8 @@ import { ApiError, playerApi } from '@/lib/api'
 
 export type PlayerSessionStatus = 'pending' | 'active' | 'displaced' | 'error'
 
+export type SessionWriteResult = 'ok' | 'displaced' | 'error'
+
 export interface UsePlayerSessionResult {
   status: PlayerSessionStatus
   error: string | null
@@ -11,9 +13,9 @@ export interface UsePlayerSessionResult {
     positionMs: number,
     durationMs: number | null,
     options?: { paused?: boolean },
-  ) => Promise<'ok' | 'displaced'>
-  postComplete: () => Promise<'ok' | 'displaced'>
-  validate: () => Promise<'ok' | 'displaced'>
+  ) => Promise<SessionWriteResult>
+  postComplete: () => Promise<SessionWriteResult>
+  validate: () => Promise<SessionWriteResult>
 }
 
 const PAUSED_PING_MS = 30_000
@@ -44,15 +46,22 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
     }
   }, [claim])
 
-  const handleSessionError = useCallback((e: unknown): 'displaced' => {
-    if (e instanceof ApiError && e.status === 409) {
-      setStatus('displaced')
-      return 'displaced'
-    }
-    throw e
-  }, [])
+  const handleSessionError = useCallback(
+    (e: unknown): 'displaced' | 'error' => {
+      if (e instanceof ApiError && e.status === 409) {
+        setStatus('displaced')
+        setError(null)
+        return 'displaced'
+      }
+      tokenRef.current = null
+      setStatus('error')
+      setError(e instanceof Error ? e.message : String(e))
+      return 'error'
+    },
+    [],
+  )
 
-  const validate = useCallback(async (): Promise<'ok' | 'displaced'> => {
+  const validate = useCallback(async (): Promise<SessionWriteResult> => {
     const token = tokenRef.current
     if (!token) return 'displaced'
     try {
@@ -68,7 +77,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       positionMs: number,
       durationMs: number | null,
       options?: { paused?: boolean },
-    ): Promise<'ok' | 'displaced'> => {
+    ): Promise<SessionWriteResult> => {
       const token = tokenRef.current
       if (!token) return 'displaced'
       pausedRef.current = options?.paused ?? false
@@ -82,7 +91,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
     [episodeId, handleSessionError],
   )
 
-  const postComplete = useCallback(async (): Promise<'ok' | 'displaced'> => {
+  const postComplete = useCallback(async (): Promise<SessionWriteResult> => {
     const token = tokenRef.current
     if (!token) return 'displaced'
     try {

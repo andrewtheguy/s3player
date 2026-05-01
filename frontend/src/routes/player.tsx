@@ -46,7 +46,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   const seededInitialPosRef = useRef(false)
 
   const session = usePlayerSession(episode.id)
-  const { status: sessionStatus, postProgress, postComplete, reclaim } = session
+  const {
+    status: sessionStatus,
+    error: sessionError,
+    postProgress,
+    postComplete,
+    reclaim,
+  } = session
+  const isBlocked = sessionStatus === 'displaced' || sessionStatus === 'error'
 
   const chapters = episode.chapters ?? []
   const hasChapters = chapters.length > 0
@@ -111,7 +118,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   const togglePlayPause = () => {
     const audio = audioRef.current
     if (!audio) return
-    if (sessionStatus === 'displaced') return
+    if (isBlocked) return
     if (audio.paused) {
       audio.play().catch(() => {})
     } else {
@@ -152,7 +159,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     if (!('mediaSession' in navigator)) return
     const s = navigator.mediaSession
     s.setActionHandler('play', () => {
-      if (sessionStatus === 'displaced') return
+      if (isBlocked) return
       audioRef.current?.play().catch(() => {})
     })
     s.setActionHandler('pause', () => {
@@ -170,7 +177,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
       s.setActionHandler('previoustrack', null)
       s.setActionHandler('nexttrack', null)
     }
-  }, [seekRelative, sessionStatus])
+  }, [seekRelative, isBlocked])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -198,14 +205,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     prevChapterIndexRef.current = playingIdx
   }, [currentTimeMs, hasChapters, seekMode, selectedChapterIndex, chapters])
 
-  // Pause and silence MediaSession when we lose the session.
+  // Pause and silence MediaSession whenever the session is unusable.
   useEffect(() => {
-    if (sessionStatus !== 'displaced') return
+    if (!isBlocked) return
     audioRef.current?.pause()
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'paused'
     }
-  }, [sessionStatus])
+  }, [isBlocked])
 
   // Periodic progress save while playing.
   useEffect(() => {
@@ -279,6 +286,26 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
             className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             Resume here
+          </button>
+        </div>
+      )}
+
+      {sessionStatus === 'error' && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <p className="font-medium">Paused — session error</p>
+          <p className="text-muted-foreground">
+            Could not reach the server to keep this session active
+            {sessionError ? `: ${sessionError}` : ''}. Playback is blocked until
+            the session is re-established.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void handleResumeHere()
+            }}
+            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Try again
           </button>
         </div>
       )}
