@@ -137,14 +137,10 @@ export interface RecentResponse {
 
 export interface ClaimResponse {
   session_token: string
-  episode_id: number
 }
 
 export const playerApi = {
-  claim: (episodeId: number) =>
-    apiPostJson<ClaimResponse>('/api/player/session/claim', {
-      episode_id: episodeId,
-    }),
+  claim: () => apiPostJson<ClaimResponse>('/api/player/session/claim', {}),
   validate: (sessionToken: string) =>
     apiPostJson<{ status: string }>(
       '/api/player/session/validate',

@@ -1,6 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, playerApi } from '@/lib/api'
 
+// Global per tab — the backend session row is single-row, not scoped per episode.
+const STORAGE_KEY = 's3player.session_token'
+
+function readStoredToken(): string | null {
+  try {
+    const v = sessionStorage.getItem(STORAGE_KEY)
+    return v && v.length > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredToken(token: string): void {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, token)
+  } catch {}
+}
+
+function clearStoredToken(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY)
+  } catch {}
+}
+
 export type PlayerSessionStatus =
   | 'inactive'
   | 'pending'
@@ -32,17 +56,21 @@ export interface UsePlayerSessionResult {
 const PAUSED_PING_MS = 30_000
 
 export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
-  const tokenRef = useRef<string | null>(null)
+  const initialToken = readStoredToken()
+  const tokenRef = useRef<string | null>(initialToken)
   const pausedRef = useRef<boolean>(true)
-  const [status, setStatus] = useState<PlayerSessionStatus>('inactive')
+  const [status, setStatus] = useState<PlayerSessionStatus>(
+    initialToken ? 'active' : 'inactive',
+  )
   const [error, setError] = useState<string | null>(null)
   const [transientError, setTransientError] = useState<string | null>(null)
 
   const claim = useCallback(async (): Promise<SessionWriteResult> => {
     setStatus('pending')
     try {
-      const res = await playerApi.claim(episodeId)
+      const res = await playerApi.claim()
       tokenRef.current = res.session_token
+      writeStoredToken(res.session_token)
       pausedRef.current = true
       setStatus('active')
       setError(null)
@@ -50,16 +78,19 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       return 'ok'
     } catch (e) {
       tokenRef.current = null
+      clearStoredToken()
       setStatus('error')
       setError(e instanceof Error ? e.message : String(e))
       return 'error'
     }
-  }, [episodeId])
+  }, [])
 
   // 409 is the only authoritative "session gone" signal; everything else is transient.
   const handleSessionError = useCallback(
     (e: unknown): 'displaced' | 'transient' | 'error' => {
       if (e instanceof ApiError && e.status === 409) {
+        tokenRef.current = null
+        clearStoredToken()
         setStatus('displaced')
         setError(null)
         setTransientError(null)
@@ -120,6 +151,13 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       return handleSessionError(e)
     }
   }, [episodeId, handleSessionError])
+
+  // Verify a rehydrated token once on mount so a stale one flips to 'displaced'
+  // immediately instead of after the first heartbeat or progress write.
+  const restoredTokenRef = useRef(initialToken)
+  useEffect(() => {
+    if (restoredTokenRef.current) void validate()
+  }, [validate])
 
   // Ping while paused; the active stream of progress writes covers the playing case.
   useEffect(() => {

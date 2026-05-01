@@ -19,15 +19,14 @@ def test_claim_is_the_displacement_operation(
     client: TestClient,
     mock_conn: AsyncMock,
 ) -> None:
-    mock_conn.fetchval.return_value = 1
-
     with patch("app.routers.player.secrets.token_urlsafe", return_value="new-token"):
-        response = client.post("/api/player/session/claim", json={"episode_id": 1})
+        response = client.post("/api/player/session/claim")
 
     assert response.status_code == 200
-    assert response.json() == {"session_token": "new-token", "episode_id": 1}
+    assert response.json() == {"session_token": "new-token"}
     execute_args, _ = mock_conn.execute.await_args
-    assert execute_args[1:] == ("new-token", 1)
+    assert execute_args[1:] == ("new-token",)
+    mock_conn.fetchval.assert_not_awaited()
 
 
 def test_validate_requires_session_token(client: TestClient, mock_conn: AsyncMock) -> None:

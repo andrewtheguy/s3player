@@ -48,11 +48,10 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS episodes_aired_on_idx ON episodes (aired_on)",
     """
     CREATE TABLE IF NOT EXISTS player_session (
-        id                 SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-        session_token      TEXT NOT NULL,
-        current_episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
-        claimed_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+        id            SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        session_token TEXT NOT NULL,
+        claimed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
     """,
     """
