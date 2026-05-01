@@ -20,6 +20,19 @@ Backend reads from environment (a `.env` at the repo root works):
 | `DATABASE_URL`          | Postgres URL (`postgres://…`)          |
 | `SITE_PASSWORD`         | Single password protecting the app     |
 
+For Postgres you can either set `DATABASE_URL` directly or supply the discrete
+pieces (useful when injecting from a Kubernetes ConfigMap/Secret); if
+`DATABASE_URL` is unset, all five of the following are required and a DSN is
+built from them:
+
+| Variable            | Purpose                       |
+| ------------------- | ----------------------------- |
+| `POSTGRES_HOST`     | Postgres host                 |
+| `POSTGRES_PORT`     | Postgres port                 |
+| `POSTGRES_USER`     | Postgres user                 |
+| `POSTGRES_PASSWORD` | Postgres password             |
+| `POSTGRES_DATABASE` | Postgres database name        |
+
 The server creates its tables on startup; no separate migration step. Run the
 indexer once to populate `shows` and `episodes` from S3.
 
