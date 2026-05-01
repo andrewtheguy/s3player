@@ -128,6 +128,24 @@ def test_complete_rejects_displaced_session_before_state_write(
     mock_conn.execute.assert_not_awaited()
 
 
+def test_complete_returns_404_when_episode_missing(
+    client: TestClient,
+    mock_conn: AsyncMock,
+) -> None:
+    install_transaction_mock(mock_conn)
+    mock_conn.fetchval.side_effect = [1, None]
+
+    response = client.post(
+        "/api/player/episodes/1/complete",
+        headers={"X-Player-Session": "active-token"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "episode not found"
+    assert mock_conn.fetchval.await_count == 2
+    mock_conn.execute.assert_not_awaited()
+
+
 def test_complete_writes_only_after_active_session_guard(
     client: TestClient,
     mock_conn: AsyncMock,
@@ -144,3 +162,26 @@ def test_complete_writes_only_after_active_session_guard(
     assert response.json() == {"status": "ok"}
     assert mock_conn.fetchval.await_count == 4
     mock_conn.execute.assert_awaited_once()
+
+
+def test_get_progress_defaults_for_missing_episode(
+    client: TestClient,
+    mock_conn: AsyncMock,
+) -> None:
+    mock_conn.fetchval.return_value = 1
+    mock_conn.fetchrow.return_value = None
+
+    response = client.get(
+        "/api/player/episodes/1/progress",
+        headers={"X-Player-Session": "active-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "position_ms": 0,
+        "duration_ms": None,
+        "completed": False,
+        "last_played_at": None,
+    }
+    mock_conn.fetchval.assert_not_awaited()
+    mock_conn.execute.assert_not_awaited()

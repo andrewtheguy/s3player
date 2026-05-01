@@ -2,7 +2,7 @@
 
 No backward compatibility or migration path for simplicity.
 
-use uv to run all python commands
+use `uv` to run all python commands
 
 ## Project layout
 

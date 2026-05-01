@@ -156,7 +156,7 @@ Current coverage includes:
 - `test_db_router.py`, `test_s3_router.py` — health and S3 listing endpoints.
 - `test_parse_key.py`, `test_chapters.py` — pure-function unit tests for the indexer's parsing helpers.
 
-There is no test for `player.py` yet.
+Tests for `player.py` have been added in `tests/test_player_router.py`.
 
 ## Deployment
 
