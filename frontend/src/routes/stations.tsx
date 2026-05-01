@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { EpisodeCard } from '@/components/episode-card'
 import type { RecentResponse, StationsResponse } from '@/lib/api'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 function HomeRow({
@@ -36,6 +37,8 @@ export function StationsPage() {
     '/api/player/in-progress',
   )
   const { data: recent } = useFetch<RecentResponse>('/api/player/recent')
+
+  useDocumentTitle('Stations')
 
   if (loading) return <p className="text-muted-foreground">Loading stations…</p>
   if (error) return <p className="text-destructive">Error: {error}</p>

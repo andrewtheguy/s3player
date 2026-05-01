@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import type { ShowsResponse } from '@/lib/api'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 export function ShowsPage() {
@@ -13,6 +14,8 @@ export function ShowsPage() {
     { label: 'Stations', href: '/stations' },
     { label: station ?? '' },
   ]
+
+  useDocumentTitle(station ?? 'Shows')
 
   if (loading) return <p className="text-muted-foreground">Loading shows…</p>
   if (error) return <p className="text-destructive">Error: {error}</p>

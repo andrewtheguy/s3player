@@ -11,7 +11,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { EpisodesResponse } from '@/lib/api'
-import { parseTwoDigitPathSegment } from '@/lib/episode-path'
+import { validateTwoDigitPathSegment } from '@/lib/episode-path'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 function formatTimeSlot(slot: string | null): string {
@@ -27,14 +28,20 @@ export function EpisodesPage() {
     year: string
     month: string
   }>()
-  const monthSegment = parseTwoDigitPathSegment(month, 1, 12)
+  const monthStr = validateTwoDigitPathSegment(month, 1, 12)
   const url =
-    monthSegment === null
+    monthStr === null
       ? null
-      : `/api/shows/${show_id}/months/${year}/${monthSegment}/episodes`
+      : `/api/shows/${show_id}/months/${year}/${monthStr}/episodes`
   const { data, error, loading } = useFetch<EpisodesResponse>(url)
 
-  if (monthSegment === null) {
+  useDocumentTitle(
+    data?.show && monthStr
+      ? `${data.show.name} — ${year}-${monthStr}`
+      : 'Episodes',
+  )
+
+  if (monthStr === null) {
     return <p className="text-muted-foreground">Invalid month.</p>
   }
 
@@ -52,7 +59,7 @@ export function EpisodesPage() {
         },
         { label: show.name, href: `/shows/${show.id}` },
         { label: year ?? '', href: `/shows/${show.id}/${year}` },
-        { label: monthSegment },
+        { label: monthStr },
       ]
     : []
 
@@ -64,7 +71,7 @@ export function EpisodesPage() {
       ) : (
         <div>
           <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-            {show?.name} — {year}-{monthSegment}
+            {show?.name} — {year}-{monthStr}
           </h1>
           <div className="rounded-lg border bg-card">
             <Table>

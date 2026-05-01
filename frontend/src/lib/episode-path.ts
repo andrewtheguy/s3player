@@ -6,7 +6,7 @@ export function formatTwoDigit(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-export function parseTwoDigitPathSegment(
+export function validateTwoDigitPathSegment(
   value: string | undefined,
   min: number,
   max: number,
