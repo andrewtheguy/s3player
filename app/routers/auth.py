@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Form, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.auth import COOKIE_MAX_AGE, COOKIE_NAME, expected_token, safe_next
+from app.auth import COOKIE_NAME, expected_token, safe_next
 from app.config import get_settings
 
 router = APIRouter(tags=["auth"])
@@ -87,7 +87,6 @@ def login_submit(
     response.set_cookie(
         COOKIE_NAME,
         expected_token(settings.site_password),
-        max_age=COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
     )

@@ -7,7 +7,6 @@ from fastapi import HTTPException, Request
 from app.config import get_settings
 
 COOKIE_NAME = "s3player_auth"
-COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 
 
 def expected_token(password: str) -> str:
