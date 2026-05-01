@@ -266,9 +266,10 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
 
       {sessionStatus === 'displaced' && (
         <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
-          <p className="font-medium">Playing elsewhere</p>
+          <p className="font-medium">Paused — player open elsewhere</p>
           <p className="text-muted-foreground">
-            This episode is playing in another tab or device.
+            Only one player can be active at a time. Another tab or device took
+            over.
           </p>
           <button
             type="button"
