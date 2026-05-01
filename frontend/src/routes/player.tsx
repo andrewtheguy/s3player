@@ -310,174 +310,181 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         </div>
       )}
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-center gap-4">
-          <button
-            type="button"
-            onClick={() => seekRelative(-15)}
-            disabled={!isLoaded}
-            title="Back 15 seconds"
-            className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
-          >
-            <Skip15BackIcon className="h-10 w-10" />
-          </button>
-          <button
-            type="button"
-            onClick={togglePlayPause}
-            disabled={!isLoaded}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            className="flex items-center justify-center transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isPlaying ? (
-              <PauseCircleIcon className="h-16 w-16" />
-            ) : (
-              <PlayCircleIcon className="h-16 w-16" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => seekRelative(30)}
-            disabled={!isLoaded}
-            title="Forward 30 seconds"
-            className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
-          >
-            <Skip30ForwardIcon className="h-10 w-10" />
-          </button>
-        </div>
-
-        {hasChapters && seekMode === 'chapter' ? (
-          (() => {
-            const chap = chapters[selectedChapterIndex]
-            const min = chap.start / 1000
-            const max = chap.end / 1000
-            const inRange = currentTime >= min && currentTime < max
-            const sliderValue = inRange ? currentTime : min
-            const isFirst = selectedChapterIndex === 0
-            const isLast = selectedChapterIndex >= chapters.length - 1
-            return (
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedChapterIndex((i) => Math.max(0, i - 1))
-                    }
-                    disabled={isFirst}
-                    aria-label="Previous chapter"
-                    title="Previous chapter"
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-xs text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
-                  >
-                    ◀
-                  </button>
-                  <Slider
-                    min={min}
-                    max={max}
-                    step={1}
-                    value={[sliderValue]}
-                    onValueChange={handleSeek}
-                    disabled={!isLoaded}
-                    className={`w-full ${
-                      inRange ? '' : '[&_[data-slot=slider-thumb]]:invisible'
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedChapterIndex((i) =>
-                        Math.min(chapters.length - 1, i + 1),
-                      )
-                    }
-                    disabled={isLast}
-                    aria-label="Next chapter"
-                    title="Next chapter"
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-xs text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
-                  >
-                    ▶
-                  </button>
-                </div>
-                <p className="truncate text-center text-xs text-muted-foreground">
-                  {chap.title || formatTimestamp(chap.start)}
-                </p>
-                <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-                  <span>{formatTime(sliderValue)}</span>
-                  <span>{formatTime(max)}</span>
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={toggleSeekMode}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Show full timeline
-                  </button>
-                </div>
-              </div>
-            )
-          })()
-        ) : (
-          <div className="space-y-2">
-            <Slider
-              value={[currentTime]}
-              max={duration || 100}
-              step={1}
-              onValueChange={handleSeek}
-              disabled={!isLoaded || !Number.isFinite(duration)}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
+      {!isBlocked && (
+        <>
+          <div className="space-y-4">
+            <div className="flex items-center justify-center gap-4">
+              <button
+                type="button"
+                onClick={() => seekRelative(-15)}
+                disabled={!isLoaded}
+                title="Back 15 seconds"
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
+              >
+                <Skip15BackIcon className="h-10 w-10" />
+              </button>
+              <button
+                type="button"
+                onClick={togglePlayPause}
+                disabled={!isLoaded}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+                className="flex items-center justify-center transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isPlaying ? (
+                  <PauseCircleIcon className="h-16 w-16" />
+                ) : (
+                  <PlayCircleIcon className="h-16 w-16" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => seekRelative(30)}
+                disabled={!isLoaded}
+                title="Forward 30 seconds"
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:border-dashed disabled:bg-muted/40 disabled:text-muted-foreground/70"
+              >
+                <Skip30ForwardIcon className="h-10 w-10" />
+              </button>
             </div>
-            {hasChapters && (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={toggleSeekMode}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Show chapter view
-                </button>
+
+            {hasChapters && seekMode === 'chapter' ? (
+              (() => {
+                const chap = chapters[selectedChapterIndex]
+                const min = chap.start / 1000
+                const max = chap.end / 1000
+                const inRange = currentTime >= min && currentTime < max
+                const sliderValue = inRange ? currentTime : min
+                const isFirst = selectedChapterIndex === 0
+                const isLast = selectedChapterIndex >= chapters.length - 1
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedChapterIndex((i) => Math.max(0, i - 1))
+                        }
+                        disabled={isFirst}
+                        aria-label="Previous chapter"
+                        title="Previous chapter"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-xs text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
+                      >
+                        ◀
+                      </button>
+                      <Slider
+                        min={min}
+                        max={max}
+                        step={1}
+                        value={[sliderValue]}
+                        onValueChange={handleSeek}
+                        disabled={!isLoaded}
+                        className={`w-full ${
+                          inRange
+                            ? ''
+                            : '[&_[data-slot=slider-thumb]]:invisible'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedChapterIndex((i) =>
+                            Math.min(chapters.length - 1, i + 1),
+                          )
+                        }
+                        disabled={isLast}
+                        aria-label="Next chapter"
+                        title="Next chapter"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-xs text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                    <p className="truncate text-center text-xs text-muted-foreground">
+                      {chap.title || formatTimestamp(chap.start)}
+                    </p>
+                    <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+                      <span>{formatTime(sliderValue)}</span>
+                      <span>{formatTime(max)}</span>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={toggleSeekMode}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Show full timeline
+                      </button>
+                    </div>
+                  </div>
+                )
+              })()
+            ) : (
+              <div className="space-y-2">
+                <Slider
+                  value={[currentTime]}
+                  max={duration || 100}
+                  step={1}
+                  onValueChange={handleSeek}
+                  disabled={!isLoaded || !Number.isFinite(duration)}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+                  <span>{formatTime(currentTime)}</span>
+                  <span>{formatTime(duration)}</span>
+                </div>
+                {hasChapters && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={toggleSeekMode}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Show chapter view
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-      </div>
 
-      {episode.chapters && episode.chapters.length > 0 ? (
-        <div className="max-h-[28rem] overflow-y-auto rounded-md border">
-          {episode.chapters.map((c) => {
-            const isCurrent = currentTimeMs >= c.start && currentTimeMs < c.end
-            const rightLabel = isCurrent
-              ? `-${formatTimestamp(c.end - currentTimeMs)}`
-              : formatTimestamp(c.end - c.start)
-            return (
-              <button
-                key={`${episode.id}-${c.start}-${c.end}-${c.title}`}
-                type="button"
-                onClick={() => jumpTo(c)}
-                aria-current={isCurrent || undefined}
-                className={`flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent ${
-                  isCurrent ? 'bg-accent font-medium' : ''
-                }`}
-              >
-                <span className="truncate">
-                  {c.title || formatTimestamp(c.start)}
-                </span>
-                <span
-                  className={`shrink-0 font-mono text-xs ${
-                    isCurrent
-                      ? 'tabular-nums text-foreground'
-                      : 'text-muted-foreground'
-                  }`}
-                >
-                  {rightLabel}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">No chapters.</p>
+          {episode.chapters && episode.chapters.length > 0 ? (
+            <div className="max-h-[28rem] overflow-y-auto rounded-md border">
+              {episode.chapters.map((c) => {
+                const isCurrent =
+                  currentTimeMs >= c.start && currentTimeMs < c.end
+                const rightLabel = isCurrent
+                  ? `-${formatTimestamp(c.end - currentTimeMs)}`
+                  : formatTimestamp(c.end - c.start)
+                return (
+                  <button
+                    key={`${episode.id}-${c.start}-${c.end}-${c.title}`}
+                    type="button"
+                    onClick={() => jumpTo(c)}
+                    aria-current={isCurrent || undefined}
+                    className={`flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent ${
+                      isCurrent ? 'bg-accent font-medium' : ''
+                    }`}
+                  >
+                    <span className="truncate">
+                      {c.title || formatTimestamp(c.start)}
+                    </span>
+                    <span
+                      className={`shrink-0 font-mono text-xs ${
+                        isCurrent
+                          ? 'tabular-nums text-foreground'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      {rightLabel}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No chapters.</p>
+          )}
+        </>
       )}
     </div>
   )
