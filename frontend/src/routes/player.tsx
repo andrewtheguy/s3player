@@ -3,8 +3,12 @@ import { useParams } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { Slider } from '@/components/ui/slider'
 import type { Chapter, Episode, EpisodeDetail } from '@/lib/api'
+import { playerApi } from '@/lib/api'
 import { getEpisodeFileName } from '@/lib/episode-path'
+import { usePlayerSession } from '@/lib/playerSession'
 import { useFetch } from '@/lib/use-fetch'
+
+const PROGRESS_SAVE_INTERVAL_MS = 10_000
 
 function formatTimestamp(ms: number): string {
   const totalSec = Math.floor(ms / 1000)
@@ -38,6 +42,11 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isLoaded, setIsLoaded] = useState(false)
+  const initialPositionMsRef = useRef<number | null>(null)
+  const seededInitialPosRef = useRef(false)
+
+  const session = usePlayerSession(episode.id)
+  const { status: sessionStatus, postProgress, postComplete, reclaim } = session
 
   const chapters = episode.chapters ?? []
   const hasChapters = chapters.length > 0
@@ -47,9 +56,62 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   const [selectedChapterIndex, setSelectedChapterIndex] = useState(0)
   const prevChapterIndexRef = useRef<number>(-1)
 
+  const trySeedInitialPosition = useCallback(() => {
+    if (seededInitialPosRef.current) return
+    const audio = audioRef.current
+    if (!audio || !Number.isFinite(audio.duration)) return
+    const pos = initialPositionMsRef.current
+    if (pos == null) return
+    if (pos > 0) {
+      const target = Math.min(pos / 1000, Math.max(0, audio.duration - 1))
+      audio.currentTime = target
+      setCurrentTime(target)
+    }
+    seededInitialPosRef.current = true
+  }, [])
+
+  // Fetch saved progress once; seek either now (if audio is loaded) or when
+  // onLoadedMetadata fires.
+  useEffect(() => {
+    let cancelled = false
+    playerApi
+      .getProgress(episode.id)
+      .then((p) => {
+        if (cancelled) return
+        initialPositionMsRef.current = p.position_ms
+        trySeedInitialPosition()
+      })
+      .catch(() => {
+        if (cancelled) return
+        initialPositionMsRef.current = 0
+        trySeedInitialPosition()
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [episode.id, trySeedInitialPosition])
+
+  const finiteDurationMs = useCallback((): number | null => {
+    const audio = audioRef.current
+    if (!audio) return null
+    const d = audio.duration
+    return Number.isFinite(d) && d > 0 ? Math.round(d * 1000) : null
+  }, [])
+
+  const saveProgress = useCallback(
+    async (options?: { paused?: boolean }) => {
+      const audio = audioRef.current
+      if (!audio) return
+      const positionMs = Math.round(audio.currentTime * 1000)
+      await postProgress(positionMs, finiteDurationMs(), options)
+    },
+    [finiteDurationMs, postProgress],
+  )
+
   const togglePlayPause = () => {
     const audio = audioRef.current
     if (!audio) return
+    if (sessionStatus === 'displaced') return
     if (audio.paused) {
       audio.play().catch(() => {})
     } else {
@@ -90,6 +152,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     if (!('mediaSession' in navigator)) return
     const s = navigator.mediaSession
     s.setActionHandler('play', () => {
+      if (sessionStatus === 'displaced') return
       audioRef.current?.play().catch(() => {})
     })
     s.setActionHandler('pause', () => {
@@ -107,7 +170,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
       s.setActionHandler('previoustrack', null)
       s.setActionHandler('nexttrack', null)
     }
-  }, [seekRelative])
+  }, [seekRelative, sessionStatus])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -135,6 +198,29 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     prevChapterIndexRef.current = playingIdx
   }, [currentTimeMs, hasChapters, seekMode, selectedChapterIndex, chapters])
 
+  // Pause and silence MediaSession when we lose the session.
+  useEffect(() => {
+    if (sessionStatus !== 'displaced') return
+    audioRef.current?.pause()
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused'
+    }
+  }, [sessionStatus])
+
+  // Periodic progress save while playing.
+  useEffect(() => {
+    if (!isPlaying || sessionStatus !== 'active') return
+    const id = window.setInterval(() => {
+      void saveProgress()
+    }, PROGRESS_SAVE_INTERVAL_MS)
+    return () => window.clearInterval(id)
+  }, [isPlaying, sessionStatus, saveProgress])
+
+  const handleResumeHere = useCallback(async () => {
+    await reclaim()
+    audioRef.current?.play().catch(() => {})
+  }, [reclaim])
+
   const toggleSeekMode = () => {
     setSeekMode((prev) => {
       const next = prev === 'chapter' ? 'timeline' : 'chapter'
@@ -158,14 +244,43 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         onLoadedMetadata={(e) => {
           setDuration(e.currentTarget.duration)
           setIsLoaded(true)
+          trySeedInitialPosition()
         }}
         onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => setIsPlaying(false)}
+        onPause={() => {
+          setIsPlaying(false)
+          if (sessionStatus === 'active') {
+            void saveProgress({ paused: true })
+          }
+        }}
+        onEnded={() => {
+          setIsPlaying(false)
+          if (sessionStatus === 'active') {
+            void postComplete()
+          }
+        }}
         onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
       >
         <track kind="captions" />
       </audio>
+
+      {sessionStatus === 'displaced' && (
+        <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
+          <p className="font-medium">Playing elsewhere</p>
+          <p className="text-muted-foreground">
+            This episode is playing in another tab or device.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void handleResumeHere()
+            }}
+            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Resume here
+          </button>
+        </div>
+      )}
 
       <div className="space-y-4">
         <div className="flex items-center justify-center gap-4">

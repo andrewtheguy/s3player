@@ -46,6 +46,26 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS episodes_show_id_idx ON episodes (show_id)",
     "CREATE INDEX IF NOT EXISTS episodes_aired_on_idx ON episodes (aired_on)",
+    """
+    CREATE TABLE IF NOT EXISTS player_session (
+        id                 SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        session_token      TEXT NOT NULL,
+        current_episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
+        claimed_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS episode_play_state (
+        episode_id     INTEGER PRIMARY KEY REFERENCES episodes(id) ON DELETE CASCADE,
+        position_ms    BIGINT NOT NULL DEFAULT 0,
+        duration_ms    BIGINT,
+        last_played_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        completed      BOOLEAN NOT NULL DEFAULT FALSE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS episode_play_state_recent_idx "
+    "ON episode_play_state (last_played_at DESC)",
 )
 
 _SHOW_UPSERT = """
@@ -84,7 +104,7 @@ def _parse_update_count(status: str) -> int:
     return 0
 
 
-async def _bootstrap_schema(conn: PoolConnectionProxy) -> None:
+async def bootstrap_schema(conn: PoolConnectionProxy) -> None:
     async with conn.transaction():
         for stmt in _SCHEMA_STATEMENTS:
             await conn.execute(stmt)
@@ -195,7 +215,7 @@ async def _run() -> None:
 
     try:
         async with pool.acquire() as conn:
-            await _bootstrap_schema(conn)
+            await bootstrap_schema(conn)
 
             show_cache: dict[tuple[str, str], int] = {}
             for prefix, station in STATION_PREFIXES.items():

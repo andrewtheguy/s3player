@@ -2,7 +2,9 @@ import hashlib
 import hmac
 import secrets
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+
+from app.config import get_settings
 
 COOKIE_NAME = "s3player_auth"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -17,6 +19,11 @@ def is_authenticated(request: Request, password: str) -> bool:
     if not cookie:
         return False
     return secrets.compare_digest(cookie, expected_token(password))
+
+
+def require_auth(request: Request) -> None:
+    if not is_authenticated(request, get_settings().site_password):
+        raise HTTPException(status_code=401, detail="unauthenticated")
 
 
 def safe_next(next_value: str) -> str:
