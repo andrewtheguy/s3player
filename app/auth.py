@@ -14,10 +14,13 @@ def expected_token(password: str) -> str:
 
 
 def is_authenticated(request: Request, password: str) -> bool:
+    expected = expected_token(password)
     cookie = request.cookies.get(COOKIE_NAME, "")
-    if not cookie:
-        return False
-    return secrets.compare_digest(cookie, expected_token(password))
+    if cookie and secrets.compare_digest(cookie, expected):
+        return True
+    header = request.headers.get("authorization", "")
+    scheme, _, token = header.partition(" ")
+    return scheme.lower() == "bearer" and bool(token) and secrets.compare_digest(token, expected)
 
 
 def require_auth(request: Request) -> None:

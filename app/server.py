@@ -22,7 +22,7 @@ from app.routers import player as player_router
 from app.routers import s3 as s3_router
 from app.routers import shows as shows_router
 
-API_AUTH_EXEMPT: frozenset[str] = frozenset({"/api/health"})
+API_AUTH_EXEMPT: frozenset[str] = frozenset({"/api/health", "/api/auth/login"})
 
 
 @asynccontextmanager

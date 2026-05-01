@@ -348,3 +348,47 @@ def test_audio_other_client_error_502(client: TestClient, mock_conn: AsyncMock) 
 
     assert response.status_code == 502
     assert "AccessDenied" in response.json()["detail"]
+
+
+def test_audio_url_returns_presigned_url(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk/radio1/x.m4a"
+    s3_mock = MagicMock()
+    s3_mock.generate_presigned_url.return_value = "https://s3.example/x.m4a?sig=abc"
+
+    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/audio_url")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "url": "https://s3.example/x.m4a?sig=abc",
+        "expires_in": 3600,
+    }
+    s3_mock.generate_presigned_url.assert_called_once_with(
+        "get_object",
+        Params={"Bucket": "test-bucket", "Key": "shows/rthk/radio1/x.m4a"},
+        ExpiresIn=3600,
+    )
+
+
+def test_audio_url_404_when_episode_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = None
+
+    response = client.get("/api/shows/episodes/999/audio_url")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "episode not found"
+
+
+def test_audio_url_presign_error_502(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    s3_mock = MagicMock()
+    s3_mock.generate_presigned_url.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "boom"}},
+        "GetObject",
+    )
+
+    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/audio_url")
+
+    assert response.status_code == 502
+    assert "AccessDenied" in response.json()["detail"]
