@@ -152,6 +152,13 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
     }
   }, [episodeId, handleSessionError])
 
+  // Verify a rehydrated token once on mount so a stale one flips to 'displaced'
+  // immediately instead of after the first heartbeat or progress write.
+  const restoredTokenRef = useRef(initialToken)
+  useEffect(() => {
+    if (restoredTokenRef.current) void validate()
+  }, [validate])
+
   // Ping while paused; the active stream of progress writes covers the playing case.
   useEffect(() => {
     if (status !== 'active') return
