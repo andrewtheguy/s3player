@@ -40,14 +40,6 @@ def test_api_login_rejects_wrong_password(client: TestClient) -> None:
     assert response.json() == {"detail": "wrong_password"}
 
 
-def test_health_is_open(client: TestClient) -> None:
-    client.cookies.clear()
-
-    response = client.get("/api/health")
-
-    assert response.status_code == 200
-
-
 def test_bearer_token_authenticates_protected_endpoint(
     client: TestClient, mock_conn: AsyncMock
 ) -> None:

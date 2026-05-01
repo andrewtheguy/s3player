@@ -59,8 +59,8 @@ bun run dev             # serves on http://localhost:5173, proxies /api → :800
 
 Visit `/login` and enter `SITE_PASSWORD`. An HMAC token is set as the
 `s3player_auth` httponly browser-session cookie. All `/api/*` endpoints except
-`/api/health` require the cookie; UI routes redirect to `/login?next=…` and
-the SPA redirects there automatically on a 401.
+`/api/auth/login` require the cookie; UI routes redirect to `/login?next=…`
+and the SPA redirects there automatically on a 401.
 
 ## Player behaviour
 
