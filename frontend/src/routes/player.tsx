@@ -5,6 +5,7 @@ import { Slider } from '@/components/ui/slider'
 import type { Chapter, Episode, EpisodeDetail } from '@/lib/api'
 import { playerApi } from '@/lib/api'
 import { getEpisodeFileName } from '@/lib/episode-path'
+import type { PlayerSessionStatus } from '@/lib/playerSession'
 import { usePlayerSession } from '@/lib/playerSession'
 import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
@@ -50,12 +51,19 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   const {
     status: sessionStatus,
     error: sessionError,
+    transientError: sessionTransientError,
     postProgress,
     postComplete,
     reclaim,
   } = session
   const isBlocked = sessionStatus !== 'active'
   const isTakingOver = sessionStatus === 'pending'
+  const lastStableStatusRef = useRef<PlayerSessionStatus>(sessionStatus)
+  useEffect(() => {
+    if (sessionStatus !== 'pending') lastStableStatusRef.current = sessionStatus
+  }, [sessionStatus])
+  const displayStatus =
+    sessionStatus === 'pending' ? lastStableStatusRef.current : sessionStatus
 
   const chapters = episode.chapters ?? []
   const hasChapters = chapters.length > 0
@@ -291,18 +299,20 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
       {isBlocked && (
         <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
           <p className="font-medium">
-            {sessionStatus === 'error'
+            {displayStatus === 'error'
               ? 'Playback controls unavailable'
-              : sessionStatus === 'displaced'
+              : displayStatus === 'displaced'
                 ? 'Player active elsewhere'
                 : 'Browse mode'}
           </p>
           <p className="text-muted-foreground">
-            {sessionStatus === 'error'
-              ? `Could not take over playback${
+            {displayStatus === 'error'
+              ? `Could not start playback${
                   sessionError ? `: ${sessionError}` : ''
                 }.`
-              : 'Playback controls are disabled here until you explicitly take over. Taking over will interrupt any other active player.'}
+              : displayStatus === 'displaced'
+                ? 'Playback is active in another tab or device. Take over to play here, which will interrupt the other player.'
+                : 'Playback controls are disabled until you start.'}
           </p>
           <button
             type="button"
@@ -312,13 +322,27 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
             }}
             className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isTakingOver ? 'Taking over...' : 'Take over playback'}
+            {displayStatus === 'displaced'
+              ? isTakingOver
+                ? 'Taking over...'
+                : 'Take over playback'
+              : isTakingOver
+                ? 'Starting...'
+                : 'Start playback'}
           </button>
         </div>
       )}
 
       {!isBlocked && (
         <>
+          {sessionTransientError && (
+            <p
+              role="status"
+              className="text-center text-xs text-muted-foreground"
+            >
+              Reconnecting… progress not saved.
+            </p>
+          )}
           <div className="space-y-4">
             <div className="flex items-center justify-center gap-4">
               <button

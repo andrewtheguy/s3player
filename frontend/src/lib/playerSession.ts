@@ -8,11 +8,17 @@ export type PlayerSessionStatus =
   | 'displaced'
   | 'error'
 
-export type SessionWriteResult = 'ok' | 'inactive' | 'displaced' | 'error'
+export type SessionWriteResult =
+  | 'ok'
+  | 'inactive'
+  | 'displaced'
+  | 'transient'
+  | 'error'
 
 export interface UsePlayerSessionResult {
   status: PlayerSessionStatus
   error: string | null
+  transientError: string | null
   reclaim: () => Promise<SessionWriteResult>
   postProgress: (
     positionMs: number,
@@ -30,6 +36,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
   const pausedRef = useRef<boolean>(true)
   const [status, setStatus] = useState<PlayerSessionStatus>('inactive')
   const [error, setError] = useState<string | null>(null)
+  const [transientError, setTransientError] = useState<string | null>(null)
 
   const claim = useCallback(async (): Promise<SessionWriteResult> => {
     setStatus('pending')
@@ -39,6 +46,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       pausedRef.current = true
       setStatus('active')
       setError(null)
+      setTransientError(null)
       return 'ok'
     } catch (e) {
       tokenRef.current = null
@@ -48,16 +56,22 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
     }
   }, [episodeId])
 
+  // 409 is the only authoritative "session gone" signal; everything else is transient.
   const handleSessionError = useCallback(
-    (e: unknown): 'displaced' | 'error' => {
+    (e: unknown): 'displaced' | 'transient' | 'error' => {
       if (e instanceof ApiError && e.status === 409) {
         setStatus('displaced')
         setError(null)
+        setTransientError(null)
         return 'displaced'
       }
-      tokenRef.current = null
+      const message = e instanceof Error ? e.message : String(e)
+      if (tokenRef.current != null) {
+        setTransientError(message)
+        return 'transient'
+      }
       setStatus('error')
-      setError(e instanceof Error ? e.message : String(e))
+      setError(message)
       return 'error'
     },
     [],
@@ -68,6 +82,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
     if (!token) return 'inactive'
     try {
       await playerApi.validate(token)
+      setTransientError(null)
       return 'ok'
     } catch (e) {
       return handleSessionError(e)
@@ -85,6 +100,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       pausedRef.current = options?.paused ?? false
       try {
         await playerApi.progress(episodeId, token, positionMs, durationMs)
+        setTransientError(null)
         return 'ok'
       } catch (e) {
         return handleSessionError(e)
@@ -98,6 +114,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
     if (!token) return 'inactive'
     try {
       await playerApi.complete(episodeId, token)
+      setTransientError(null)
       return 'ok'
     } catch (e) {
       return handleSessionError(e)
@@ -117,6 +134,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
   return {
     status,
     error,
+    transientError,
     reclaim: claim,
     postProgress,
     postComplete,
