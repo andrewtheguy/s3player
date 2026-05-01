@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 
 from app.chapters import Chapter, normalize_chapters
 from app.config import Settings, get_settings
-from app.db import close_pool, get_pool
+from app.db import bootstrap_schema, close_pool, get_pool
 from app.parse_key import ParsedEpisode, parse_episode_key
 from app.s3_client import get_s3_client
 
@@ -22,50 +22,6 @@ STATION_PREFIXES: dict[str, str] = {
 
 FFPROBE_PRESIGN_EXPIRES_IN = 300
 FFPROBE_TIMEOUT_SECONDS = 60
-
-_SCHEMA_STATEMENTS: tuple[str, ...] = (
-    """
-    CREATE TABLE IF NOT EXISTS shows (
-        id      SERIAL PRIMARY KEY,
-        station TEXT NOT NULL,
-        name    TEXT NOT NULL,
-        UNIQUE (station, name)
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS shows_station_idx ON shows (station)",
-    """
-    CREATE TABLE IF NOT EXISTS episodes (
-        id        SERIAL PRIMARY KEY,
-        s3_key    TEXT NOT NULL UNIQUE,
-        show_id   INTEGER NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
-        aired_on  DATE NOT NULL,
-        chapters  JSONB,
-        time_slot TEXT,
-        deleted   BOOLEAN NOT NULL DEFAULT FALSE
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS episodes_show_id_idx ON episodes (show_id)",
-    "CREATE INDEX IF NOT EXISTS episodes_aired_on_idx ON episodes (aired_on)",
-    """
-    CREATE TABLE IF NOT EXISTS player_session (
-        id            SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-        session_token TEXT NOT NULL,
-        claimed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS episode_play_state (
-        episode_id     INTEGER PRIMARY KEY REFERENCES episodes(id) ON DELETE CASCADE,
-        position_ms    BIGINT NOT NULL DEFAULT 0,
-        duration_ms    BIGINT,
-        last_played_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        completed      BOOLEAN NOT NULL DEFAULT FALSE
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS episode_play_state_recent_idx "
-    "ON episode_play_state (last_played_at DESC)",
-)
 
 _SHOW_UPSERT = """
 INSERT INTO shows (station, name) VALUES ($1, $2)
@@ -101,12 +57,6 @@ def _parse_update_count(status: str) -> int:
         except ValueError:
             return 0
     return 0
-
-
-async def bootstrap_schema(conn: PoolConnectionProxy) -> None:
-    async with conn.transaction():
-        for stmt in _SCHEMA_STATEMENTS:
-            await conn.execute(stmt)
 
 
 def _list_keys(client: Any, bucket: str, prefix: str) -> list[str]:

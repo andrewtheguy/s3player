@@ -2,8 +2,9 @@ import html
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Query
+from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel
 
 from app.auth import COOKIE_NAME, expected_token, safe_next
 from app.config import get_settings
@@ -91,3 +92,19 @@ def login_submit(
         samesite="lax",
     )
     return response
+
+
+class TokenLoginRequest(BaseModel):
+    password: str
+
+
+class TokenLoginResponse(BaseModel):
+    token: str
+
+
+@router.post("/api/auth/login", response_model=TokenLoginResponse)
+def api_login(body: TokenLoginRequest) -> TokenLoginResponse:
+    settings = get_settings()
+    if not secrets.compare_digest(body.password, settings.site_password):
+        raise HTTPException(status_code=401, detail="wrong_password")
+    return TokenLoginResponse(token=expected_token(settings.site_password))

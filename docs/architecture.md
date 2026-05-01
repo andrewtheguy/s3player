@@ -35,10 +35,10 @@ The FastAPI lifespan handler opens the asyncpg pool and runs `bootstrap_schema`;
 `site_password_gate` is the single gate:
 
 - `/login` — always allowed (handled by `app.routers.auth`).
-- `/api/*` — require the `s3player_auth` HMAC cookie (verified by `app.auth.is_authenticated`); unauthenticated → 401 JSON. Exempt: `/api/health`.
+- `/api/*` — require either the `s3player_auth` HMAC cookie or an `Authorization: Bearer <token>` header (both verified by `app.auth.is_authenticated`); unauthenticated → 401 JSON. Exempt: `/api/health`, `/api/auth/login`.
 - Everything else (SPA routes) — unauthenticated → 303 redirect to `/login?next=…`.
 
-The cookie token is a deterministic HMAC-SHA256 value derived from the shared site password and a fixed authentication message. The cookie settings live with the auth helper code. There is no per-user identity; it is a single shared password.
+The auth token is a deterministic HMAC-SHA256 value derived from the shared site password and a fixed authentication message. Browsers receive it as a cookie via the HTML form login at `/login`; non-browser clients (mobile apps, CLIs, scripts) obtain the same token by `POST /api/auth/login` with `{"password": "..."}` and present it as `Authorization: Bearer <token>` on subsequent requests. The cookie settings live with the auth helper code. There is no per-user identity; it is a single shared password, and the token does not expire unless `SITE_PASSWORD` rotates.
 
 ### Routers
 
@@ -49,7 +49,7 @@ All under `app/routers/`. Request handlers get a connection with the shared `get
 | `auth.py` | `/login` | Form-based login and auth cookie creation. |
 | `db.py` | `/api/db` | Health check + the `get_conn` dependency. |
 | `s3.py` | `/api/s3` | Raw S3 listing (debug/inspection). |
-| `shows.py` | `/api/shows` | Browse hierarchy (stations → shows → years → months → episodes) and `GET /episodes/{id}/audio` with HTTP 206 range support (boto3 calls go through `asyncio.to_thread`). |
+| `shows.py` | `/api/shows` | Browse hierarchy (stations → shows → years → months → episodes), `GET /episodes/{id}/audio` with HTTP 206 range support, and `GET /episodes/{id}/audio_url` returning a presigned S3 URL for clients that fetch audio directly (boto3 calls go through `asyncio.to_thread`). |
 | `player.py` | `/api/player` | Session claim/validate, progress save, complete, recent/in-progress lists. |
 
 ### Database

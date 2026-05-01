@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/shows", tags=["shows"])
 
 AUDIO_CHUNK_SIZE = 64 * 1024
 AUDIO_CONTENT_TYPE = "audio/mp4"
+AUDIO_URL_EXPIRES_IN = 3600
 
 
 class Station(BaseModel):
@@ -82,6 +83,11 @@ class EpisodeDetail(BaseModel):
     s3_key: str
     chapters: list[Chapter] | None
     show: ShowDetail
+
+
+class AudioUrlResponse(BaseModel):
+    url: str
+    expires_in: int
 
 
 def _db_error(e: Exception) -> HTTPException:
@@ -261,6 +267,35 @@ def _stream_body(body: Any) -> Iterator[bytes]:
             yield chunk
     finally:
         body.close()
+
+
+@router.get("/episodes/{episode_id}/audio_url")
+async def get_episode_audio_url(
+    episode_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> AudioUrlResponse:
+    try:
+        s3_key = await conn.fetchval(
+            "SELECT s3_key FROM episodes WHERE id = $1 AND deleted = FALSE", episode_id
+        )
+    except Exception as e:
+        raise _db_error(e) from e
+    if s3_key is None:
+        raise HTTPException(status_code=404, detail="episode not found")
+
+    settings = get_settings()
+    client = get_s3_client()
+    try:
+        url = await asyncio.to_thread(
+            client.generate_presigned_url,
+            "get_object",
+            Params={"Bucket": settings.s3_bucket, "Key": s3_key},
+            ExpiresIn=AUDIO_URL_EXPIRES_IN,
+        )
+    except ClientError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return AudioUrlResponse(url=url, expires_in=AUDIO_URL_EXPIRES_IN)
 
 
 @router.get("/episodes/{episode_id}/audio")
