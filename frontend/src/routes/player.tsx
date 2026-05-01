@@ -329,7 +329,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
                 onClick={togglePlayPause}
                 disabled={!isLoaded}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
-                className="flex items-center justify-center transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center justify-center text-primary transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isPlaying ? (
                   <PauseCircleIcon className="h-16 w-16" />
@@ -501,7 +501,7 @@ function PlayCircleIcon({ className }: { className?: string }) {
     >
       <title>Play</title>
       <circle cx="12" cy="12" r="11" fill="currentColor" />
-      <path d="M9.5 7.5v9l7-4.5-7-4.5z" fill="white" />
+      <path d="M9.5 7.5v9l7-4.5-7-4.5z" className="fill-primary-foreground" />
     </svg>
   )
 }
@@ -516,8 +516,22 @@ function PauseCircleIcon({ className }: { className?: string }) {
     >
       <title>Pause</title>
       <circle cx="12" cy="12" r="11" fill="currentColor" />
-      <rect x="8" y="7" width="3" height="10" rx="0.5" fill="white" />
-      <rect x="13" y="7" width="3" height="10" rx="0.5" fill="white" />
+      <rect
+        x="8"
+        y="7"
+        width="3"
+        height="10"
+        rx="0.5"
+        className="fill-primary-foreground"
+      />
+      <rect
+        x="13"
+        y="7"
+        width="3"
+        height="10"
+        rx="0.5"
+        className="fill-primary-foreground"
+      />
     </svg>
   )
 }
