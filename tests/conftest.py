@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import COOKIE_NAME, expected_token
 from app.config import get_settings
 from app.routers.db import get_conn
 from app.server import app
@@ -23,7 +24,9 @@ get_settings.cache_clear()
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    c = TestClient(app)
+    c.cookies.set(COOKIE_NAME, expected_token(get_settings().site_password))
+    return c
 
 
 @pytest.fixture
