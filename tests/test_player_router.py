@@ -19,7 +19,7 @@ def test_claim_is_the_displacement_operation(
     client: TestClient,
     mock_conn: AsyncMock,
 ) -> None:
-    with patch("app.routers.player.secrets.token_urlsafe", return_value="new-token"):
+    with patch("app.player_state.secrets.token_urlsafe", return_value="new-token"):
         response = client.post("/api/player/session/claim")
 
     assert response.status_code == 200
@@ -161,6 +161,26 @@ def test_complete_writes_only_after_active_session_guard(
     assert response.json() == {"status": "ok"}
     assert mock_conn.fetchval.await_count == 4
     mock_conn.execute.assert_awaited_once()
+    execute_args, _ = mock_conn.execute.await_args
+    assert execute_args[1:] == (1, 2000, 2000, True)
+
+
+def test_complete_without_existing_duration_writes_zero_duration(
+    client: TestClient,
+    mock_conn: AsyncMock,
+) -> None:
+    install_transaction_mock(mock_conn)
+    mock_conn.fetchval.side_effect = [1, 1, 1, None]
+
+    response = client.post(
+        "/api/player/episodes/1/complete",
+        headers={"X-Player-Session": "active-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    execute_args, _ = mock_conn.execute.await_args
+    assert execute_args[1:] == (1, 0, 0, True)
 
 
 def test_get_progress_defaults_for_missing_episode(

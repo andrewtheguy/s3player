@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncIterator
 
 import asyncpg
 from asyncpg.pool import PoolConnectionProxy
@@ -78,6 +79,12 @@ async def get_pool() -> asyncpg.Pool:
             init=_init_conn,
         )
     return _pool
+
+
+async def get_conn() -> AsyncIterator[PoolConnectionProxy]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        yield conn
 
 
 async def close_pool() -> None:
