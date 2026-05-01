@@ -19,7 +19,7 @@ def test_claim_is_the_displacement_operation(
     client: TestClient,
     mock_conn: AsyncMock,
 ) -> None:
-    with patch("app.routers.player.secrets.token_urlsafe", return_value="new-token"):
+    with patch("app.player_state.secrets.token_urlsafe", return_value="new-token"):
         response = client.post("/api/player/session/claim")
 
     assert response.status_code == 200

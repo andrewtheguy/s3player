@@ -285,7 +285,7 @@ def test_audio_streams_full_object(client: TestClient, mock_conn: AsyncMock) -> 
         "ContentType": "audio/mp4",
     }
 
-    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
         response = client.get("/api/shows/episodes/11/audio")
 
     assert response.status_code == 200
@@ -309,7 +309,7 @@ def test_audio_passes_range_and_returns_206(client: TestClient, mock_conn: Async
         "ContentRange": "bytes 0-6/900",
     }
 
-    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
         response = client.get("/api/shows/episodes/11/audio", headers={"Range": "bytes=0-6"})
 
     assert response.status_code == 206
@@ -329,7 +329,7 @@ def test_audio_invalid_range_returns_416(client: TestClient, mock_conn: AsyncMoc
         "GetObject",
     )
 
-    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
         response = client.get("/api/shows/episodes/11/audio", headers={"Range": "bytes=99999-"})
 
     assert response.status_code == 416
@@ -343,7 +343,7 @@ def test_audio_other_client_error_502(client: TestClient, mock_conn: AsyncMock) 
         "GetObject",
     )
 
-    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
         response = client.get("/api/shows/episodes/11/audio")
 
     assert response.status_code == 502
@@ -355,7 +355,7 @@ def test_audio_url_returns_presigned_url(client: TestClient, mock_conn: AsyncMoc
     s3_mock = MagicMock()
     s3_mock.generate_presigned_url.return_value = "https://s3.example/x.m4a?sig=abc"
 
-    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
         response = client.get("/api/shows/episodes/11/audio_url")
 
     assert response.status_code == 200
@@ -387,7 +387,7 @@ def test_audio_url_presign_error_502(client: TestClient, mock_conn: AsyncMock) -
         "GetObject",
     )
 
-    with patch("app.routers.shows.get_s3_client", return_value=s3_mock):
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
         response = client.get("/api/shows/episodes/11/audio_url")
 
     assert response.status_code == 502

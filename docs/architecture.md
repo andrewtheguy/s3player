@@ -67,8 +67,14 @@ Public routers live under `app/routers/`. Postgres-backed request handlers get a
 | --- | --- | --- |
 | `auth.py` | `/login` | Form-based login and auth cookie creation. |
 | `s3.py` | `/api/s3` | Raw S3 listing (debug/inspection). |
-| `shows.py` | `/api/shows` | Browse hierarchy (stations → shows → months → episodes; years are derived client-side from month buckets), `GET /episodes/{id}/audio` with HTTP 206 range support, and `GET /episodes/{id}/audio_url` returning a presigned S3 URL for clients that fetch audio directly (boto3 calls go through `asyncio.to_thread`). |
-| `player.py` | `/api/player` | Session claim/validate, progress save, complete, recent/in-progress lists. |
+| `shows.py` | `/api/shows` | HTTP adapter for browse hierarchy, episode detail, audio stream, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
+| `player.py` | `/api/player` | HTTP adapter for session claim/validate, progress save, complete, recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
+
+Supporting modules outside `app/routers/` hold reusable application logic:
+
+- `app.catalog` — station/show/month/episode read queries and row mapping.
+- `app.audio` — presigned audio URLs, S3 range forwarding, stream-body cleanup, and S3 audio error normalization.
+- `app.player_state` — single-session claim/displacement, progress writes, completion, and recent/in-progress queries.
 
 ### Database
 
