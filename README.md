@@ -68,11 +68,13 @@ the SPA redirects there automatically on a 401.
   POSTs the current position to `/api/player/episodes/{id}/progress`. On
   reload, the saved position is fetched and applied once audio metadata is
   ready.
-- **Single session (global)**: opening a player anywhere claims a session
-  token via `/api/player/session/claim`. The token is held in memory in the
-  tab and sent as `X-Player-Session` on every write. A new claim displaces
-  the previous one; the displaced tab pauses on its next write or 30s
-  validate-ping and shows a "Resume here" banner that re-claims.
+- **Single session (global)**: opening a player page is read-only and does
+  not claim the active player session. The user must explicitly choose
+  *Take over playback*, which claims a session token via
+  `/api/player/session/claim`. The token is held in memory in the tab and
+  sent as `X-Player-Session` on every write. A new claim displaces the
+  previous one; the displaced tab pauses on its next write or validate-ping
+  and disables playback controls until the user explicitly takes over again.
 - **Home page** (`/stations`) shows two rows above the stations grid:
   *Continue listening* (in-progress, not completed, position more than 30s
   before the end) and *Recently played* (history). Both are hidden when
