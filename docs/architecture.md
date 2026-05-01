@@ -99,8 +99,9 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 - **`frontend/src/lib/api.ts`** — `apiFetch` (GET) and `apiPostJson` (POST) wrap `fetch` and on 401 redirect to `/login?next=…`. `playerApi` is a small typed object exposing `claim`, `validate`, `progress`, `complete`, `getProgress`.
 - **`useFetch<T>(path)`** (`lib/use-fetch.ts`) — drop-in `{ data, error, loading }` hook used by every list page.
 - **`usePlayerSession(episodeId)`** (`lib/playerSession.ts`) — owns the player session lifecycle:
-  - On mount, calls `claim()` and stores the token in a ref. Token is sent as `X-Player-Session` on every write.
-  - State machine: `pending → active | displaced | error`.
+  - Starts inactive on mount so opening a player page does not displace another device.
+  - A user must explicitly take over playback, which calls `claim()` and stores the token in a ref. Token is sent as `X-Player-Session` on every write.
+  - State machine: `inactive → pending → active | displaced | error`.
   - A periodic heartbeat calls `validate` while paused; HTTP 409 from the server flips state to `displaced`.
   - Exposes `postProgress`, `postComplete`, `reclaim`.
 
@@ -125,8 +126,9 @@ s3player index
 
 ```
 PlayerPage mounts
-  → POST /api/player/session/claim       (gets session_token)
   → GET  /api/player/episodes/{id}/progress   (seeks audio to saved pos)
+  → user clicks "Take over playback":
+       POST /api/player/session/claim    (gets session_token)
   → audio plays, periodically and on pause:
        POST /api/player/episodes/{id}/progress  with X-Player-Session
   → on `ended`:
@@ -135,7 +137,7 @@ PlayerPage mounts
 
 ### Single active session (displacement)
 
-`player_session` has exactly one row. Claiming a session is the operation that makes a player active and displaces any previous token. Every other mutating player API validates the presented token against that row before doing player-state work. If validation matches no row, the token has been displaced by another claim and the route raises HTTP 409. The frontend hook flips state to `displaced` and renders a "Resume here" banner that re-claims. While paused, the validate ping lets a displaced tab notice without waiting for the next progress write.
+`player_session` has exactly one row. Claiming a session is the operation that makes a player active and displaces any previous token, so the frontend only calls it from the explicit takeover control. Every other mutating player API validates the presented token against that row before doing player-state work. If validation matches no row, the token has been displaced by another claim and the route raises HTTP 409. The frontend hook flips state to `displaced` and disables playback controls until the user explicitly takes over again. While paused, the validate ping lets a displaced tab notice without waiting for the next progress write.
 
 ### Home rows
 

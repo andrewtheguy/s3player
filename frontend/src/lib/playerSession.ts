@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, playerApi } from '@/lib/api'
 
-export type PlayerSessionStatus = 'pending' | 'active' | 'displaced' | 'error'
+export type PlayerSessionStatus =
+  | 'inactive'
+  | 'pending'
+  | 'active'
+  | 'displaced'
+  | 'error'
 
-export type SessionWriteResult = 'ok' | 'displaced' | 'error'
+export type SessionWriteResult = 'ok' | 'inactive' | 'displaced' | 'error'
 
 export interface UsePlayerSessionResult {
   status: PlayerSessionStatus
   error: string | null
-  reclaim: () => Promise<void>
+  reclaim: () => Promise<SessionWriteResult>
   postProgress: (
     positionMs: number,
     durationMs: number | null,
@@ -23,28 +28,25 @@ const PAUSED_PING_MS = 30_000
 export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
   const tokenRef = useRef<string | null>(null)
   const pausedRef = useRef<boolean>(true)
-  const [status, setStatus] = useState<PlayerSessionStatus>('pending')
+  const [status, setStatus] = useState<PlayerSessionStatus>('inactive')
   const [error, setError] = useState<string | null>(null)
 
-  const claim = useCallback(async () => {
+  const claim = useCallback(async (): Promise<SessionWriteResult> => {
+    setStatus('pending')
     try {
       const res = await playerApi.claim(episodeId)
       tokenRef.current = res.session_token
+      pausedRef.current = true
       setStatus('active')
       setError(null)
+      return 'ok'
     } catch (e) {
       tokenRef.current = null
       setStatus('error')
       setError(e instanceof Error ? e.message : String(e))
+      return 'error'
     }
   }, [episodeId])
-
-  useEffect(() => {
-    void claim()
-    return () => {
-      tokenRef.current = null
-    }
-  }, [claim])
 
   const handleSessionError = useCallback(
     (e: unknown): 'displaced' | 'error' => {
@@ -63,7 +65,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
 
   const validate = useCallback(async (): Promise<SessionWriteResult> => {
     const token = tokenRef.current
-    if (!token) return 'displaced'
+    if (!token) return 'inactive'
     try {
       await playerApi.validate(token)
       return 'ok'
@@ -79,7 +81,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       options?: { paused?: boolean },
     ): Promise<SessionWriteResult> => {
       const token = tokenRef.current
-      if (!token) return 'displaced'
+      if (!token) return 'inactive'
       pausedRef.current = options?.paused ?? false
       try {
         await playerApi.progress(episodeId, token, positionMs, durationMs)
@@ -93,7 +95,7 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
 
   const postComplete = useCallback(async (): Promise<SessionWriteResult> => {
     const token = tokenRef.current
-    if (!token) return 'displaced'
+    if (!token) return 'inactive'
     try {
       await playerApi.complete(episodeId, token)
       return 'ok'

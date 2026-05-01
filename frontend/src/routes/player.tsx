@@ -54,7 +54,8 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     postComplete,
     reclaim,
   } = session
-  const isBlocked = sessionStatus === 'displaced' || sessionStatus === 'error'
+  const isBlocked = sessionStatus !== 'active'
+  const isTakingOver = sessionStatus === 'pending'
 
   const chapters = episode.chapters ?? []
   const hasChapters = chapters.length > 0
@@ -127,28 +128,31 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     }
   }
 
-  const seekRelative = useCallback((seconds: number) => {
-    const audio = audioRef.current
-    if (!audio) return
-    const target = Math.max(
-      0,
-      Math.min(audio.duration || 0, audio.currentTime + seconds),
-    )
-    audio.currentTime = target
-    setCurrentTime(target)
-  }, [])
+  const seekRelative = useCallback(
+    (seconds: number) => {
+      const audio = audioRef.current
+      if (!audio || isBlocked) return
+      const target = Math.max(
+        0,
+        Math.min(audio.duration || 0, audio.currentTime + seconds),
+      )
+      audio.currentTime = target
+      setCurrentTime(target)
+    },
+    [isBlocked],
+  )
 
   const handleSeek = (value: number[]) => {
     const audio = audioRef.current
     const next = value[0]
-    if (!audio || !Number.isFinite(next)) return
+    if (!audio || isBlocked || !Number.isFinite(next)) return
     audio.currentTime = next
     setCurrentTime(next)
   }
 
   function jumpTo(chapter: Chapter) {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || isBlocked) return
     audio.currentTime = chapter.start / 1000
     const idx = chapters.indexOf(chapter)
     if (idx >= 0) setSelectedChapterIndex(idx)
@@ -206,7 +210,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     prevChapterIndexRef.current = playingIdx
   }, [currentTimeMs, hasChapters, seekMode, selectedChapterIndex, chapters])
 
-  // Pause and silence MediaSession whenever the session is unusable.
+  // Pause and silence MediaSession whenever this page is not the active player.
   useEffect(() => {
     if (!isBlocked) return
     audioRef.current?.pause()
@@ -224,9 +228,8 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     return () => window.clearInterval(id)
   }, [isPlaying, sessionStatus, saveProgress])
 
-  const handleResumeHere = useCallback(async () => {
+  const handleTakeOver = useCallback(async () => {
     await reclaim()
-    audioRef.current?.play().catch(() => {})
   }, [reclaim])
 
   const toggleSeekMode = () => {
@@ -254,7 +257,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
           setIsLoaded(true)
           trySeedInitialPosition()
         }}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={(e) => {
+          if (isBlocked) {
+            e.currentTarget.pause()
+            setIsPlaying(false)
+            return
+          }
+          setIsPlaying(true)
+        }}
         onPause={() => {
           setIsPlaying(false)
           if (sessionStatus === 'active') {
@@ -272,41 +282,31 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         <track kind="captions" />
       </audio>
 
-      {sessionStatus === 'displaced' && (
+      {isBlocked && (
         <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
-          <p className="font-medium">Paused — player open elsewhere</p>
+          <p className="font-medium">
+            {sessionStatus === 'error'
+              ? 'Playback controls unavailable'
+              : sessionStatus === 'displaced'
+                ? 'Player active elsewhere'
+                : 'Browse mode'}
+          </p>
           <p className="text-muted-foreground">
-            Only one player can be active at a time. Another tab or device took
-            over.
+            {sessionStatus === 'error'
+              ? `Could not take over playback${
+                  sessionError ? `: ${sessionError}` : ''
+                }.`
+              : 'Playback controls are disabled here until you explicitly take over. Taking over will interrupt any other active player.'}
           </p>
           <button
             type="button"
+            disabled={isTakingOver}
             onClick={() => {
-              void handleResumeHere()
+              void handleTakeOver()
             }}
-            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Resume here
-          </button>
-        </div>
-      )}
-
-      {sessionStatus === 'error' && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          <p className="font-medium">Paused — session error</p>
-          <p className="text-muted-foreground">
-            Could not reach the server to keep this session active
-            {sessionError ? `: ${sessionError}` : ''}. Playback is blocked until
-            the session is re-established.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              void handleResumeHere()
-            }}
-            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Try again
+            {isTakingOver ? 'Taking over...' : 'Take over playback'}
           </button>
         </div>
       )}
@@ -632,7 +632,7 @@ export function PlayerPage() {
           {show.name} — {data.aired_on}
         </p>
       </div>
-      <EpisodePlayer episode={data} />
+      <EpisodePlayer key={data.id} episode={data} />
     </div>
   )
 }
