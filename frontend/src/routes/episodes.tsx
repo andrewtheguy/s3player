@@ -1,5 +1,5 @@
 import { Play } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,6 +23,7 @@ function formatTimeSlot(slot: string | null): string {
 }
 
 export function EpisodesPage() {
+  const navigate = useNavigate()
   const { show_id, year, month } = useParams<{
     show_id: string
     year: string
@@ -87,7 +88,11 @@ export function EpisodesPage() {
               </TableHeader>
               <TableBody>
                 {episodes.map((ep) => (
-                  <TableRow key={ep.id}>
+                  <TableRow
+                    key={ep.id}
+                    onClick={() => navigate(`/player/${ep.id}`)}
+                    className="cursor-pointer"
+                  >
                     <TableCell className="font-medium">{ep.aired_on}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatTimeSlot(ep.time_slot)}
