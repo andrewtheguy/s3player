@@ -14,8 +14,7 @@ from starlette.types import Scope
 
 from app.auth import is_authenticated
 from app.config import get_settings
-from app.db import close_pool, get_pool
-from app.indexer import bootstrap_schema
+from app.db import bootstrap_schema, close_pool, get_pool
 from app.routers import auth as auth_router
 from app.routers import db as db_router
 from app.routers import player as player_router
