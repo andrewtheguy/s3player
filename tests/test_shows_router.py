@@ -321,6 +321,25 @@ def test_audio_passes_range_and_returns_206(client: TestClient, mock_conn: Async
     assert kwargs["Range"] == "bytes=0-6"
 
 
+def test_audio_range_header_without_content_range_returns_200(
+    client: TestClient, mock_conn: AsyncMock
+) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    body = io.BytesIO(b"FULL")
+    s3_mock = MagicMock()
+    s3_mock.get_object.return_value = {
+        "Body": body,
+        "ContentLength": 4,
+    }
+
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/audio", headers={"Range": "bytes=0-6"})
+
+    assert response.status_code == 200
+    assert "content-range" not in response.headers
+    assert response.content == b"FULL"
+
+
 def test_audio_invalid_range_returns_416(client: TestClient, mock_conn: AsyncMock) -> None:
     mock_conn.fetchval.return_value = "k.m4a"
     s3_mock = MagicMock()

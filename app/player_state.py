@@ -163,11 +163,12 @@ async def mark_complete(
             "SELECT duration_ms FROM episode_play_state WHERE episode_id = $1",
             episode_id,
         )
+        duration = existing_duration if existing_duration is not None else 0
         await conn.execute(
             _PROGRESS_UPSERT_SQL,
             episode_id,
-            existing_duration if existing_duration is not None else 0,
-            existing_duration,
+            duration,
+            duration,
             True,
         )
 

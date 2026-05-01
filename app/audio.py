@@ -92,7 +92,7 @@ async def open_audio_stream(s3_key: str, range_header: str | None) -> AudioStrea
 
     return AudioStream(
         body=_stream_body(s3_response["Body"]),
-        status_code=206 if range_header else 200,
+        status_code=206 if "ContentRange" in s3_response else 200,
         headers=headers,
         media_type=AUDIO_CONTENT_TYPE,
     )
