@@ -51,7 +51,6 @@ The production Python server enforces authentication in `site_password_gate` bef
 | `GET /api/health` | No | Process health check. |
 | `POST /api/auth/login` | No | Password-to-bearer-token login for non-browser clients. |
 | `GET /login`, `POST /login` | No | HTML login form and auth cookie creation. |
-| `/api/db/*` | Yes | Includes `GET /api/db/health`; requires auth even though `/api/health` does not. |
 | `/api/s3/*` | Yes | Debug/inspection S3 listing endpoints. |
 | `/api/shows/*` | Yes | Browse, episode detail, audio stream, and presigned audio URL endpoints. |
 | `/api/player/*` | Yes | Session claim/validate, progress, completion, recent, and in-progress endpoints. |
@@ -62,19 +61,18 @@ Protected API routes accept either the `s3player_auth` cookie or `Authorization:
 
 ### Routers
 
-All under `app/routers/`. Request handlers get a connection with the shared `get_conn` dependency, which acquires from the global pool and releases on request end.
+Public routers live under `app/routers/`. Postgres-backed request handlers get a connection with the shared `app.db.get_conn` dependency, which acquires from the global pool and releases on request end.
 
 | Router | Prefix | Purpose |
 | --- | --- | --- |
 | `auth.py` | `/login` | Form-based login and auth cookie creation. |
-| `db.py` | `/api/db` | Health check + the `get_conn` dependency. |
 | `s3.py` | `/api/s3` | Raw S3 listing (debug/inspection). |
 | `shows.py` | `/api/shows` | Browse hierarchy (stations → shows → months → episodes; years are derived client-side from month buckets), `GET /episodes/{id}/audio` with HTTP 206 range support, and `GET /episodes/{id}/audio_url` returning a presigned S3 URL for clients that fetch audio directly (boto3 calls go through `asyncio.to_thread`). |
 | `player.py` | `/api/player` | Session claim/validate, progress save, complete, recent/in-progress lists. |
 
 ### Database
 
-The backend uses one lazily-created asyncpg pool. A jsonb codec is registered per connection so chapters round-trip as native Python data.
+The backend uses one lazily-created asyncpg pool. A jsonb codec is registered per connection so chapters round-trip as native Python data. `app.db.get_conn` is the FastAPI dependency used by Postgres-backed routers.
 
 Schema is created by `bootstrap_schema` using `IF NOT EXISTS` statements:
 
@@ -176,7 +174,7 @@ The two filters are mutually exclusive, so an episode should not appear in both.
 Current coverage includes:
 
 - `test_shows_router.py` — browse hierarchy, audio range requests (206/416).
-- `test_db_router.py`, `test_s3_router.py` — health and S3 listing endpoints.
+- `test_s3_router.py` — S3 listing endpoint.
 - `test_auth_router.py` — HTML login cookie flow, token login, bearer auth, and API auth failures.
 - `test_player_router.py` — session claim/validate, displacement handling, progress writes, completion writes, and progress defaults.
 - `test_parse_key.py`, `test_chapters.py` — pure-function unit tests for the indexer's parsing helpers.

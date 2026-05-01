@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import COOKIE_NAME, expected_token
 from app.config import get_settings
-from app.routers.db import get_conn
+from app.db import get_conn
 from app.server import app
 
 get_settings.cache_clear()

@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.routers.db import get_conn
+from app.db import get_conn
 from app.s3_client import get_s3_client
 
 router = APIRouter(prefix="/api/shows", tags=["shows"])

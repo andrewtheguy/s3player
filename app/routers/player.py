@@ -7,7 +7,7 @@ from asyncpg.pool import PoolConnectionProxy
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
-from app.routers.db import get_conn
+from app.db import get_conn
 
 router = APIRouter(prefix="/api/player", tags=["player"])
 
