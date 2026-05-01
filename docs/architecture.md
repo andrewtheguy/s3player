@@ -99,10 +99,11 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 - **`frontend/src/lib/api.ts`** — `apiFetch` (GET) and `apiPostJson` (POST) wrap `fetch` and on 401 redirect to `/login?next=…`. `playerApi` is a small typed object exposing `claim`, `validate`, `progress`, `complete`, `getProgress`.
 - **`useFetch<T>(path)`** (`lib/use-fetch.ts`) — drop-in `{ data, error, loading }` hook used by every list page.
 - **`usePlayerSession(episodeId)`** (`lib/playerSession.ts`) — owns the player session lifecycle:
-  - Starts inactive on mount so opening a player page does not displace another device.
-  - A user must explicitly take over playback, which calls `claim()` and stores the token in a ref. Token is sent as `X-Player-Session` on every write.
-  - State machine: `inactive → pending → active | displaced | error`.
-  - A periodic heartbeat calls `validate` while paused; HTTP 409 from the server flips state to `displaced`.
+  - On a fresh tab, starts inactive so opening a player page does not displace another device. The user must explicitly start playback, which calls `claim()`.
+  - The claim token is stored in a ref AND mirrored to `sessionStorage` (key `s3player.session_token`) so the same tab rehydrates as `active` across React remounts, hot reloads, full reloads, and navigation between episodes — no per-episode scoping, since the backend session row is global.
+  - Token is sent as `X-Player-Session` on every write.
+  - State machine: `inactive → pending → active | displaced | error`. Transient call failures (network, 5xx) keep the active session and surface a non-blocking `transientError`; only HTTP 409 flips to `displaced`.
+  - A periodic heartbeat calls `validate` while paused.
   - Exposes `postProgress`, `postComplete`, `reclaim`.
 
 ### Build / dev

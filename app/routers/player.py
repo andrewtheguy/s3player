@@ -12,13 +12,8 @@ from app.routers.db import get_conn
 router = APIRouter(prefix="/api/player", tags=["player"])
 
 
-class ClaimRequest(BaseModel):
-    episode_id: int = Field(ge=1)
-
-
 class ClaimResponse(BaseModel):
     session_token: str
-    episode_id: int
 
 
 class ProgressRequest(BaseModel):
@@ -51,19 +46,17 @@ class RecentResponse(BaseModel):
 
 
 _CLAIM_SQL = """
-INSERT INTO player_session (id, session_token, current_episode_id)
-VALUES (1, $1, $2)
+INSERT INTO player_session (id, session_token)
+VALUES (1, $1)
 ON CONFLICT (id) DO UPDATE
   SET session_token = EXCLUDED.session_token,
-      current_episode_id = EXCLUDED.current_episode_id,
       claimed_at = now(),
       last_seen_at = now()
 """
 
 _TOUCH_SQL = """
 UPDATE player_session
-SET last_seen_at = now(),
-    current_episode_id = COALESCE($2, current_episode_id)
+SET last_seen_at = now()
 WHERE id = 1 AND session_token = $1
 RETURNING 1
 """
@@ -122,9 +115,8 @@ async def _episode_exists(conn: PoolConnectionProxy, episode_id: int) -> bool:
 async def _touch_session(
     conn: PoolConnectionProxy,
     session_token: str,
-    episode_id: int | None = None,
 ) -> None:
-    ok = await conn.fetchval(_TOUCH_SQL, session_token, episode_id)
+    ok = await conn.fetchval(_TOUCH_SQL, session_token)
     if ok is None:
         raise HTTPException(status_code=409, detail="session displaced")
 
@@ -143,14 +135,11 @@ def _require_session_token(session_token: str | None) -> str:
 
 @router.post("/session/claim")
 async def claim_session(
-    body: ClaimRequest,
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> ClaimResponse:
-    if not await _episode_exists(conn, body.episode_id):
-        raise HTTPException(status_code=404, detail="episode not found")
     token = secrets.token_urlsafe(24)
-    await conn.execute(_CLAIM_SQL, token, body.episode_id)
-    return ClaimResponse(session_token=token, episode_id=body.episode_id)
+    await conn.execute(_CLAIM_SQL, token)
+    return ClaimResponse(session_token=token)
 
 
 @router.post("/session/validate")
@@ -175,7 +164,7 @@ async def save_progress(
         await _guard_session(conn, session_token)
         if not await _episode_exists(conn, episode_id):
             raise HTTPException(status_code=404, detail="episode not found")
-        await _touch_session(conn, session_token, episode_id)
+        await _touch_session(conn, session_token)
         await conn.execute(
             _PROGRESS_UPSERT_SQL,
             episode_id,
@@ -197,7 +186,7 @@ async def mark_complete(
         await _guard_session(conn, session_token)
         if not await _episode_exists(conn, episode_id):
             raise HTTPException(status_code=404, detail="episode not found")
-        await _touch_session(conn, session_token, episode_id)
+        await _touch_session(conn, session_token)
         existing_duration = await conn.fetchval(
             "SELECT duration_ms FROM episode_play_state WHERE episode_id = $1",
             episode_id,
