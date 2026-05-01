@@ -40,6 +40,8 @@ The FastAPI lifespan handler opens the asyncpg pool and runs `bootstrap_schema`;
 
 The auth token is a deterministic HMAC-SHA256 value derived from the shared site password and a fixed authentication message. Browsers receive it as a cookie via the HTML form login at `/login`; non-browser clients (mobile apps, CLIs, scripts) obtain the same token by `POST /api/auth/login` with `{"password": "..."}` and present it as `Authorization: Bearer <token>` on subsequent requests. The cookie settings live with the auth helper code. There is no per-user identity; it is a single shared password, and the token does not expire unless `SITE_PASSWORD` rotates.
 
+For standalone native, mobile, desktop, or CLI clients, the JSON API is sufficient without a CORS requirement: authenticate with `/api/auth/login`, send the bearer token on protected API requests, use the browse/detail/player endpoints for metadata and playback state, and use either the proxied audio stream endpoint or the presigned audio URL endpoint for media fetches.
+
 ### Routers
 
 All under `app/routers/`. Request handlers get a connection with the shared `get_conn` dependency, which acquires from the global pool and releases on request end.
@@ -49,7 +51,7 @@ All under `app/routers/`. Request handlers get a connection with the shared `get
 | `auth.py` | `/login` | Form-based login and auth cookie creation. |
 | `db.py` | `/api/db` | Health check + the `get_conn` dependency. |
 | `s3.py` | `/api/s3` | Raw S3 listing (debug/inspection). |
-| `shows.py` | `/api/shows` | Browse hierarchy (stations → shows → years → months → episodes), `GET /episodes/{id}/audio` with HTTP 206 range support, and `GET /episodes/{id}/audio_url` returning a presigned S3 URL for clients that fetch audio directly (boto3 calls go through `asyncio.to_thread`). |
+| `shows.py` | `/api/shows` | Browse hierarchy (stations → shows → months → episodes; years are derived client-side from month buckets), `GET /episodes/{id}/audio` with HTTP 206 range support, and `GET /episodes/{id}/audio_url` returning a presigned S3 URL for clients that fetch audio directly (boto3 calls go through `asyncio.to_thread`). |
 | `player.py` | `/api/player` | Session claim/validate, progress save, complete, recent/in-progress lists. |
 
 ### Database
@@ -60,7 +62,7 @@ Schema is created by `bootstrap_schema` using `IF NOT EXISTS` statements:
 
 - **`shows`** — station/name records, unique by station and show name.
 - **`episodes`** — S3 key, show, air date, optional chapters, time slot, and a soft-delete flag. The indexer toggles the flag when keys disappear from or reappear in S3.
-- **`player_session`** — the single currently-active player session, including its token, claimed episode, claim time, and last heartbeat.
+- **`player_session`** — the single currently-active player session, including its token, claim time, and last heartbeat. It is global and not scoped to an episode.
 - **`episode_play_state`** — per-episode playback position, duration, last-played timestamp, and completion state.
 
 ### Indexer
@@ -157,9 +159,9 @@ Current coverage includes:
 
 - `test_shows_router.py` — browse hierarchy, audio range requests (206/416).
 - `test_db_router.py`, `test_s3_router.py` — health and S3 listing endpoints.
+- `test_auth_router.py` — HTML login cookie flow, token login, bearer auth, and API auth failures.
+- `test_player_router.py` — session claim/validate, displacement handling, progress writes, completion writes, and progress defaults.
 - `test_parse_key.py`, `test_chapters.py` — pure-function unit tests for the indexer's parsing helpers.
-
-Tests for `player.py` have been added in `tests/test_player_router.py`.
 
 ## Deployment
 
