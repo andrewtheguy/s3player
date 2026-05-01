@@ -220,7 +220,7 @@ async def list_recent(
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> RecentResponse:
     rows = await conn.fetch(
-        _LIST_SQL_BASE + " ORDER BY eps.last_played_at DESC LIMIT $1",
+        _LIST_SQL_BASE + " AND eps.completed = TRUE ORDER BY eps.last_played_at DESC LIMIT $1",
         limit,
     )
     return RecentResponse(episodes=[_row_to_recent(r) for r in rows])
