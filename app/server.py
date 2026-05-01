@@ -6,20 +6,27 @@ from urllib.parse import quote
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.auth import is_authenticated
 from app.config import get_settings
-from app.db import close_pool
+from app.db import close_pool, get_pool
+from app.indexer import bootstrap_schema
 from app.routers import auth as auth_router
 from app.routers import db as db_router
+from app.routers import player as player_router
 from app.routers import s3 as s3_router
 from app.routers import shows as shows_router
+
+API_AUTH_EXEMPT: frozenset[str] = frozenset({"/api/health"})
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await bootstrap_schema(conn)
     yield
     await close_pool()
 
@@ -43,9 +50,18 @@ async def site_password_gate(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     path = request.url.path
-    if path.startswith("/api/") or path == "/login":
+    if path == "/login":
         return await call_next(request)
     settings = get_settings()
+    if path.startswith("/api/"):
+        if path in API_AUTH_EXEMPT:
+            return await call_next(request)
+        if is_authenticated(request, settings.site_password):
+            return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "unauthenticated"},
+        )
     if is_authenticated(request, settings.site_password):
         return await call_next(request)
     target = path
@@ -61,6 +77,7 @@ app.include_router(auth_router.router)
 app.include_router(s3_router.router)
 app.include_router(db_router.router)
 app.include_router(shows_router.router)
+app.include_router(player_router.router)
 
 
 @app.get("/api/health")
