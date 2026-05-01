@@ -135,7 +135,7 @@ PlayerPage mounts
 
 ### Single active session (displacement)
 
-`player_session` has exactly one row. Session-sensitive player writes first update that row using the presented token. If the update matches no row, the token has been displaced by another claim and the route raises HTTP 409. The frontend hook flips state to `displaced` and renders a "Resume here" banner that re-claims. While paused, the validate ping lets a displaced tab notice without waiting for the next progress write.
+`player_session` has exactly one row. Claiming a session is the operation that makes a player active and displaces any previous token. Every other mutating player API validates the presented token against that row before doing player-state work. If validation matches no row, the token has been displaced by another claim and the route raises HTTP 409. The frontend hook flips state to `displaced` and renders a "Resume here" banner that re-claims. While paused, the validate ping lets a displaced tab notice without waiting for the next progress write.
 
 ### Home rows
 
