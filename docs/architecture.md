@@ -42,6 +42,24 @@ The auth token is a deterministic HMAC-SHA256 value derived from the shared site
 
 For standalone native, mobile, desktop, or CLI clients, the JSON API is sufficient without a CORS requirement: authenticate with `/api/auth/login`, send the bearer token on protected API requests, use the browse/detail/player endpoints for metadata and playback state, and use either the proxied audio stream endpoint or the presigned audio URL endpoint for media fetches.
 
+### Production route protection
+
+The production Python server enforces authentication in `site_password_gate` before requests reach API routers or the mounted SPA/static files.
+
+| Path | Protected? | Notes |
+| --- | --- | --- |
+| `GET /api/health` | No | Process health check. |
+| `POST /api/auth/login` | No | Password-to-bearer-token login for non-browser clients. |
+| `GET /login`, `POST /login` | No | HTML login form and auth cookie creation. |
+| `/api/db/*` | Yes | Includes `GET /api/db/health`; requires auth even though `/api/health` does not. |
+| `/api/s3/*` | Yes | Debug/inspection S3 listing endpoints. |
+| `/api/shows/*` | Yes | Browse, episode detail, audio stream, and presigned audio URL endpoints. |
+| `/api/player/*` | Yes | Session claim/validate, progress, completion, recent, and in-progress endpoints. |
+| All other `/api/*` paths | Yes | Unauthenticated requests return `401 {"detail": "unauthenticated"}` before routing. |
+| SPA/static routes, `/docs`, `/redoc`, `/openapi.json` | Yes | Unauthenticated requests redirect to `/login?next=...`; authenticated requests continue. |
+
+Protected API routes accept either the `s3player_auth` cookie or `Authorization: Bearer <token>`.
+
 ### Routers
 
 All under `app/routers/`. Request handlers get a connection with the shared `get_conn` dependency, which acquires from the global pool and releases on request end.
