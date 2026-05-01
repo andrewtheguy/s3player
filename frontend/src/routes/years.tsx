@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import type { MonthsResponse } from '@/lib/api'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 interface YearBucket {
@@ -32,6 +33,8 @@ export function YearsPage() {
   const { data, error, loading } = useFetch<MonthsResponse>(
     `/api/shows/${show_id}/months`,
   )
+
+  useDocumentTitle(data?.show?.name ?? 'Show')
 
   if (loading) return <p className="text-muted-foreground">Loading years…</p>
   if (error) return <p className="text-destructive">Error: {error}</p>

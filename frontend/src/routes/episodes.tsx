@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table'
 import type { EpisodesResponse } from '@/lib/api'
 import { parseTwoDigitPathSegment } from '@/lib/episode-path'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 function formatTimeSlot(slot: string | null): string {
@@ -33,6 +34,12 @@ export function EpisodesPage() {
       ? null
       : `/api/shows/${show_id}/months/${year}/${monthSegment}/episodes`
   const { data, error, loading } = useFetch<EpisodesResponse>(url)
+
+  useDocumentTitle(
+    data?.show && monthSegment
+      ? `${data.show.name} — ${year}-${monthSegment}`
+      : 'Episodes',
+  )
 
   if (monthSegment === null) {
     return <p className="text-muted-foreground">Invalid month.</p>

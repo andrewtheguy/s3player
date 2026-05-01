@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import type { MonthsResponse } from '@/lib/api'
 import { formatTwoDigit } from '@/lib/episode-path'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 const MONTH_NAMES = [
@@ -26,6 +27,10 @@ export function MonthsPage() {
   }>()
   const { data, error, loading } = useFetch<MonthsResponse>(
     `/api/shows/${show_id}/months`,
+  )
+
+  useDocumentTitle(
+    data?.show ? `${data.show.name} — ${year}` : (year ?? 'Months'),
   )
 
   if (loading) return <p className="text-muted-foreground">Loading months…</p>

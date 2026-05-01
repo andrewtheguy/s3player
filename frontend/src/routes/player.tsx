@@ -6,6 +6,7 @@ import type { Chapter, Episode, EpisodeDetail } from '@/lib/api'
 import { playerApi } from '@/lib/api'
 import { getEpisodeFileName } from '@/lib/episode-path'
 import { usePlayerSession } from '@/lib/playerSession'
+import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
 const PROGRESS_SAVE_INTERVAL_MS = 10_000
@@ -582,6 +583,8 @@ export function PlayerPage() {
   const { data, error, loading } = useFetch<EpisodeDetail>(
     `/api/shows/episodes/${episode_id}`,
   )
+
+  useDocumentTitle(data ? getEpisodeFileName(data) : 'Player')
 
   if (loading) return <p className="text-muted-foreground">Loading player…</p>
   if (error) return <p className="text-destructive">Error: {error}</p>
