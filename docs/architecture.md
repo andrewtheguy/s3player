@@ -46,18 +46,30 @@ For standalone native, mobile, desktop, or CLI clients, the JSON API is sufficie
 
 The production Python server enforces authentication in `site_password_gate` before requests reach API routers or the mounted SPA/static files.
 
-| Path | Protected? | Notes |
-| --- | --- | --- |
-| `GET /api/health` | No | Process health check. |
-| `POST /api/auth/login` | No | Password-to-bearer-token login for non-browser clients. |
-| `GET /login`, `POST /login` | No | HTML login form and auth cookie creation. |
-| `/api/s3/*` | Yes | Debug/inspection S3 listing endpoints. |
-| `/api/shows/*` | Yes | Browse, episode detail, audio stream, and presigned audio URL endpoints. |
-| `/api/player/*` | Yes | Session claim/validate, progress, completion, recent, and in-progress endpoints. |
-| All other `/api/*` paths | Yes | Unauthenticated requests return `401 {"detail": "unauthenticated"}` before routing. |
-| SPA/static routes, `/docs`, `/redoc`, `/openapi.json` | Yes | Unauthenticated requests redirect to `/login?next=...`; authenticated requests continue. |
+| Path | Site auth? | Player session token? | Notes |
+| --- | --- | --- | --- |
+| `GET /api/health` | No | No | Process health check. |
+| `POST /api/auth/login` | No | No | Password-to-bearer-token login for non-browser clients. |
+| `GET /login`, `POST /login` | No | No | HTML login form and auth cookie creation. |
+| `/api/s3/*` | Yes | No | Debug/inspection S3 listing endpoints. |
+| `GET /api/shows/stations` | Yes | No | Lists stations. |
+| `GET /api/shows/stations/{station}/shows` | Yes | No | Lists shows for a station. |
+| `GET /api/shows/{show_id}` | Yes | No | Reads show detail. |
+| `GET /api/shows/{show_id}/months` | Yes | No | Lists month buckets for a show. |
+| `GET /api/shows/{show_id}/months/{year}/{month}/episodes` | Yes | No | Lists episodes in a month. |
+| `GET /api/shows/episodes/{episode_id}` | Yes | No | Reads episode detail. |
+| `GET /api/shows/episodes/{episode_id}/audio` | Yes | No | Backend audio stream proxy; supports S3 range forwarding. |
+| `GET /api/shows/episodes/{episode_id}/audio_url` | Yes | No | Returns a presigned S3 URL for direct media fetches. |
+| `POST /api/player/session/claim` | Yes | No | Creates a new active player session and displaces any previous session token. |
+| `POST /api/player/session/validate` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
+| `POST /api/player/episodes/{id}/progress` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
+| `POST /api/player/episodes/{id}/complete` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
+| `GET /api/player/episodes/{id}/progress` | Yes | No | Reads saved progress. |
+| `GET /api/player/recent`, `GET /api/player/in-progress` | Yes | No | Reads playback history rows. |
+| All other `/api/*` paths | Yes | N/A | Site auth is checked before routing; authenticated unknown paths return 404. |
+| SPA/static routes, `/docs`, `/redoc`, `/openapi.json` | Yes | No | Unauthenticated requests redirect to `/login?next=...`; authenticated requests continue. |
 
-Protected API routes accept either the `s3player_auth` cookie or `Authorization: Bearer <token>`.
+Site-auth-protected API routes accept either the `s3player_auth` cookie or `Authorization: Bearer <token>`. Player-session-token routes additionally require `X-Player-Session`; missing tokens return `401 {"detail": "missing session token"}`, and stale/displaced tokens return `409 {"detail": "session displaced"}`.
 
 ### Routers
 
@@ -67,8 +79,14 @@ Public routers live under `app/routers/`. Postgres-backed request handlers get a
 | --- | --- | --- |
 | `auth.py` | `/login` | Form-based login and auth cookie creation. |
 | `s3.py` | `/api/s3` | Raw S3 listing (debug/inspection). |
-| `shows.py` | `/api/shows` | HTTP adapter for browse hierarchy, episode detail, audio stream, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
+| `shows.py` | `/api/shows` | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
 | `player.py` | `/api/player` | HTTP adapter for session claim/validate, progress save, complete, recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
+
+### Audio stream proxy
+
+`GET /api/shows/episodes/{episode_id}/audio` is the backend audio proxy. It resolves the episode id to an S3 key, forwards the client's `Range` header to S3 when present, streams the S3 body back as `audio/mp4`, and includes `Accept-Ranges`, `Content-Length`, and `Content-Range` headers when S3 returns them. The route returns `206` only when S3 returns `ContentRange`; otherwise it returns `200`.
+
+`GET /api/shows/episodes/{episode_id}/audio_url` is the direct-fetch alternative. It returns a presigned S3 URL plus its expiry for clients that do not need the backend to proxy media bytes.
 
 Supporting modules outside `app/routers/` hold reusable application logic:
 
