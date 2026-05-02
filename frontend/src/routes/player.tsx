@@ -56,8 +56,13 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     claim,
   } = session
   const [replayConfirmNeeded, setReplayConfirmNeeded] = useState(false)
+  // Progress save, replay-confirm gating, and the in-progress query all assume
+  // a finite duration. Block playback for any audio whose metadata reports
+  // Infinity / NaN / 0.
+  const hasFiniteDuration = Number.isFinite(duration) && duration > 0
+  const isUnplayable = isLoaded && !hasFiniteDuration
   const isSessionBlocked = sessionStatus !== 'active'
-  const isBlocked = isSessionBlocked || replayConfirmNeeded
+  const isBlocked = isSessionBlocked || replayConfirmNeeded || isUnplayable
   const isTakingOver = sessionStatus === 'pending'
   const lastStableStatusRef = useRef<PlayerSessionStatus>(sessionStatus)
   useEffect(() => {
@@ -348,7 +353,17 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         </div>
       )}
 
-      {!isSessionBlocked && replayConfirmNeeded && (
+      {!isSessionBlocked && isUnplayable && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <p className="font-medium">Cannot play this episode</p>
+          <p className="text-muted-foreground">
+            The audio file does not report a finite duration, so progress and
+            completion can't be tracked. Playback is disabled.
+          </p>
+        </div>
+      )}
+
+      {!isSessionBlocked && !isUnplayable && replayConfirmNeeded && (
         <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
           <p className="font-medium">Episode already completed</p>
           <p className="text-muted-foreground">
