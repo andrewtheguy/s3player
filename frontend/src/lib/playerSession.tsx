@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { ApiError, playerApi } from '@/lib/api'
 
 // Global per tab — the backend session row is single-row, not scoped per episode.
@@ -39,26 +47,30 @@ export type SessionWriteResult =
   | 'transient'
   | 'error'
 
-export interface UsePlayerSessionResult {
+export interface PlayerSessionContextValue {
   status: PlayerSessionStatus
   error: string | null
   transientError: string | null
+  claim: () => Promise<SessionWriteResult>
   reclaim: () => Promise<SessionWriteResult>
+  validate: () => Promise<SessionWriteResult>
   postProgress: (
+    episodeId: number,
     positionMs: number,
     durationMs: number | null,
-    options?: { paused?: boolean },
   ) => Promise<SessionWriteResult>
-  postComplete: () => Promise<SessionWriteResult>
-  validate: () => Promise<SessionWriteResult>
+  postComplete: (episodeId: number) => Promise<SessionWriteResult>
 }
 
-const PAUSED_PING_MS = 30_000
+const HEARTBEAT_MS = 30_000
 
-export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
+const PlayerSessionContext = createContext<PlayerSessionContextValue | null>(
+  null,
+)
+
+export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const initialToken = readStoredToken()
   const tokenRef = useRef<string | null>(initialToken)
-  const pausedRef = useRef<boolean>(true)
   const [status, setStatus] = useState<PlayerSessionStatus>(
     initialToken ? 'active' : 'inactive',
   )
@@ -71,7 +83,6 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
       const res = await playerApi.claim()
       tokenRef.current = res.session_token
       writeStoredToken(res.session_token)
-      pausedRef.current = true
       setStatus('active')
       setError(null)
       setTransientError(null)
@@ -122,13 +133,12 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
 
   const postProgress = useCallback(
     async (
+      episodeId: number,
       positionMs: number,
       durationMs: number | null,
-      options?: { paused?: boolean },
     ): Promise<SessionWriteResult> => {
       const token = tokenRef.current
       if (!token) return 'inactive'
-      pausedRef.current = options?.paused ?? false
       try {
         await playerApi.progress(episodeId, token, positionMs, durationMs)
         setTransientError(null)
@@ -137,45 +147,74 @@ export function usePlayerSession(episodeId: number): UsePlayerSessionResult {
         return handleSessionError(e)
       }
     },
-    [episodeId, handleSessionError],
+    [handleSessionError],
   )
 
-  const postComplete = useCallback(async (): Promise<SessionWriteResult> => {
-    const token = tokenRef.current
-    if (!token) return 'inactive'
-    try {
-      await playerApi.complete(episodeId, token)
-      setTransientError(null)
-      return 'ok'
-    } catch (e) {
-      return handleSessionError(e)
-    }
-  }, [episodeId, handleSessionError])
+  const postComplete = useCallback(
+    async (episodeId: number): Promise<SessionWriteResult> => {
+      const token = tokenRef.current
+      if (!token) return 'inactive'
+      try {
+        await playerApi.complete(episodeId, token)
+        setTransientError(null)
+        return 'ok'
+      } catch (e) {
+        return handleSessionError(e)
+      }
+    },
+    [handleSessionError],
+  )
 
   // Verify a rehydrated token once on mount so a stale one flips to 'displaced'
-  // immediately instead of after the first heartbeat or progress write.
+  // immediately instead of waiting for the first heartbeat.
   const restoredTokenRef = useRef(initialToken)
   useEffect(() => {
     if (restoredTokenRef.current) void validate()
   }, [validate])
 
-  // Ping while paused; the active stream of progress writes covers the playing case.
+  // Periodic heartbeat on every screen while we hold a session. Skip ticks while
+  // the tab is hidden, and re-validate immediately on hidden→visible to catch
+  // displacement that happened in the background.
   useEffect(() => {
     if (status !== 'active') return
-    const id = window.setInterval(() => {
-      if (!pausedRef.current) return
-      void validate()
-    }, PAUSED_PING_MS)
-    return () => window.clearInterval(id)
+    const tick = () => {
+      if (!document.hidden) void validate()
+    }
+    const id = window.setInterval(tick, HEARTBEAT_MS)
+    const onVisibility = () => {
+      if (!document.hidden) void validate()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [status, validate])
 
-  return {
+  const value: PlayerSessionContextValue = {
     status,
     error,
     transientError,
+    claim,
     reclaim: claim,
+    validate,
     postProgress,
     postComplete,
-    validate,
   }
+
+  return (
+    <PlayerSessionContext.Provider value={value}>
+      {children}
+    </PlayerSessionContext.Provider>
+  )
+}
+
+export function usePlayerSession(): PlayerSessionContextValue {
+  const ctx = useContext(PlayerSessionContext)
+  if (ctx === null) {
+    throw new Error(
+      'usePlayerSession must be used within PlayerSessionProvider',
+    )
+  }
+  return ctx
 }
