@@ -25,6 +25,16 @@ function formatRelative(iso: string): string {
   return new Date(ts).toLocaleDateString()
 }
 
+function formatPosition(ms: number): string {
+  const totalSec = Math.floor(Math.max(0, ms) / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`
+}
+
 function formatTimeSlot(slot: string | null): string {
   if (!slot) return ''
   const m = /^(\d{2})(\d{2})_(\d{2})(\d{2})$/.exec(slot)
@@ -72,13 +82,14 @@ export function EpisodeCard({
         {episode.aired_on}
         {timeSlot ? ` · ${timeSlot}` : ''}
       </div>
-      {pct != null ? (
+      {pct != null && episode.duration_ms != null ? (
         <div className="mt-3">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {Math.round(pct)}% played
+            {formatPosition(episode.position_ms)} /{' '}
+            {formatPosition(episode.duration_ms)}
           </div>
         </div>
       ) : (
