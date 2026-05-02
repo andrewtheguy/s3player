@@ -68,7 +68,7 @@ const PlayerSessionContext = createContext<PlayerSessionContextValue | null>(
 )
 
 export function PlayerSessionProvider({ children }: { children: ReactNode }) {
-  const initialToken = readStoredToken()
+  const [initialToken] = useState<string | null>(readStoredToken)
   const tokenRef = useRef<string | null>(initialToken)
   const [status, setStatus] = useState<PlayerSessionStatus>(
     initialToken ? 'active' : 'inactive',
@@ -76,23 +76,36 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [transientError, setTransientError] = useState<string | null>(null)
 
-  const claim = useCallback(async (): Promise<SessionWriteResult> => {
+  // Re-entry guard: a duplicate call (double-tap, assistive tech) within the
+  // render-commit window where the takeover button is still clickable returns
+  // the same in-flight promise instead of issuing a second POST whose response
+  // could land out of order and leave us holding a token the server already
+  // displaced.
+  const inflightClaimRef = useRef<Promise<SessionWriteResult> | null>(null)
+  const claim = useCallback((): Promise<SessionWriteResult> => {
+    if (inflightClaimRef.current) return inflightClaimRef.current
     setStatus('pending')
-    try {
-      const res = await playerApi.claim()
-      tokenRef.current = res.session_token
-      writeStoredToken(res.session_token)
-      setStatus('active')
-      setError(null)
-      setTransientError(null)
-      return 'ok'
-    } catch (e) {
-      tokenRef.current = null
-      clearStoredToken()
-      setStatus('error')
-      setError(e instanceof Error ? e.message : String(e))
-      return 'error'
-    }
+    const p = (async (): Promise<SessionWriteResult> => {
+      try {
+        const res = await playerApi.claim()
+        tokenRef.current = res.session_token
+        writeStoredToken(res.session_token)
+        setStatus('active')
+        setError(null)
+        setTransientError(null)
+        return 'ok'
+      } catch (e) {
+        tokenRef.current = null
+        clearStoredToken()
+        setStatus('error')
+        setError(e instanceof Error ? e.message : String(e))
+        return 'error'
+      } finally {
+        inflightClaimRef.current = null
+      }
+    })()
+    inflightClaimRef.current = p
+    return p
   }, [])
 
   // 409 is the only authoritative "session gone" signal; everything else is transient.
@@ -165,11 +178,11 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   )
 
   // Verify a rehydrated token once on mount so a stale one flips to 'displaced'
-  // immediately instead of waiting for the first heartbeat.
-  const restoredTokenRef = useRef(initialToken)
+  // immediately instead of waiting for the first heartbeat. initialToken is
+  // captured at mount via lazy useState, so it's stable across renders.
   useEffect(() => {
-    if (restoredTokenRef.current) void validate()
-  }, [validate])
+    if (initialToken) void validate()
+  }, [initialToken, validate])
 
   // Periodic heartbeat on every screen while we hold a session. Skip ticks while
   // the tab is hidden, and re-validate immediately on hidden→visible to catch
