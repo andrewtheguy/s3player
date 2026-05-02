@@ -67,8 +67,7 @@ The production Python server enforces authentication in `site_password_gate` bef
 | `GET /api/shows/episodes/{episode_id}/audio_url` | Yes | No | Returns a presigned S3 URL for direct media fetches. |
 | `POST /api/player/session/claim` | Yes | No | Creates a new active player session and displaces any previous session token. |
 | `POST /api/player/session/validate` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
-| `POST /api/player/episodes/{id}/progress` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
-| `POST /api/player/episodes/{id}/complete` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
+| `POST /api/player/episodes/{id}/progress` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. Body `completed: true` marks the episode fully played in the same write. |
 | `GET /api/player/episodes/{id}/progress` | Yes | No | Reads saved progress. |
 | `DELETE /api/player/episodes/{id}/progress` | Yes | No | Drops the play-state row; idempotent. Used by the home page X button to dismiss a Continue-listening entry. |
 | `GET /api/player/recent-completed`, `GET /api/player/in-progress` | Yes | No | Reads playback history rows. |
@@ -86,7 +85,7 @@ Routers live under `app/routers/` and are split by visibility: one internal rout
 | `internal.py` | (none) | Internal | HTML `/login` form and auth cookie creation. Router-level `include_in_schema=False`. |
 | `auth.py` | `/api/auth` | Public | `POST /api/auth/login` — site-password-to-bearer-token exchange for non-browser clients. |
 | `shows.py` | `/api/shows` | Public | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
-| `player.py` | `/api/player` | Public | HTTP adapter for session claim/validate, progress save, complete, recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
+| `player.py` | `/api/player` | Public | HTTP adapter for session claim/validate, progress save (which also carries the `completed` flag), recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
 
 ### Audio stream proxy
 
@@ -144,7 +143,7 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 
 ### Data layer
 
-- **`frontend/src/lib/api.ts`** — `apiFetch` (GET) and `apiPostJson` (POST) wrap `fetch` and on 401 redirect to `/login?next=…`. `playerApi` is a small typed object exposing `claim`, `validate`, `progress`, `complete`, `getProgress`.
+- **`frontend/src/lib/api.ts`** — `apiFetch` (GET), `apiPostJson` (POST), and `apiDelete` (DELETE) wrap `fetch` and on 401 redirect to `/login?next=…`. `playerApi` is a small typed object exposing `claim`, `validate`, `progress` (carries `completed`), `getProgress`, `deleteProgress`.
 - **`useFetch<T>(path)`** (`lib/use-fetch.ts`) — drop-in `{ data, error, loading }` hook used by every list page.
 - **`usePlayerSession(episodeId)`** (`lib/playerSession.ts`) — owns the player session lifecycle:
   - On a fresh tab, starts inactive so opening a player page does not displace another device. The user must explicitly start playback, which calls `claim()`.
@@ -152,7 +151,7 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
   - Token is sent as `X-Player-Session` on every write.
   - State machine: `inactive → pending → active | displaced | error`. Transient call failures (network, 5xx) keep the active session and surface a non-blocking `transientError`; only HTTP 409 flips to `displaced`.
   - A periodic heartbeat calls `validate` while paused.
-  - Exposes `postProgress`, `postComplete`, `reclaim`.
+  - Exposes `postProgress` (which carries the `completed` flag) and `claim`.
 
 ### Build / dev
 
@@ -181,7 +180,7 @@ PlayerPage mounts
   → audio plays, periodically and on pause:
        POST /api/player/episodes/{id}/progress  with X-Player-Session
   → on `ended`:
-       POST /api/player/episodes/{id}/complete  (sets completed=TRUE)
+       POST /api/player/episodes/{id}/progress  with completed=true (sets completed=TRUE)
 ```
 
 ### Single active session (displacement)

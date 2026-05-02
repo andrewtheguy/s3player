@@ -160,19 +160,15 @@ export const playerApi = {
     sessionToken: string,
     positionMs: number,
     durationMs: number | null,
+    completed: boolean,
   ) =>
     apiPostJson<{ status: string }>(
       `/api/player/episodes/${episodeId}/progress`,
       {
         position_ms: positionMs,
         ...(durationMs != null ? { duration_ms: durationMs } : {}),
+        completed,
       },
-      { 'X-Player-Session': sessionToken },
-    ),
-  complete: (episodeId: number, sessionToken: string) =>
-    apiPostJson<{ status: string }>(
-      `/api/player/episodes/${episodeId}/complete`,
-      {},
       { 'X-Player-Session': sessionToken },
     ),
   getProgress: (episodeId: number) =>

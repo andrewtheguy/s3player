@@ -98,89 +98,28 @@ def test_progress_saves_only_after_active_session_guard(
     assert response.json() == {"status": "ok"}
     assert mock_conn.fetchval.await_count == 3
     mock_conn.execute.assert_awaited_once()
+    execute_args, _ = mock_conn.execute.await_args
+    assert execute_args[1:] == (1, 1000, 2000, False)
 
 
-def test_complete_requires_session_token(client: TestClient, mock_conn: AsyncMock) -> None:
-    response = client.post("/api/player/episodes/1/complete")
-
-    assert response.status_code == 401
-    assert response.json()["detail"] == "missing session token"
-    mock_conn.fetchval.assert_not_awaited()
-    mock_conn.execute.assert_not_awaited()
-
-
-def test_complete_rejects_displaced_session_before_state_write(
+def test_progress_with_completed_true_persists_completion(
     client: TestClient,
     mock_conn: AsyncMock,
 ) -> None:
     install_transaction_mock(mock_conn)
-    mock_conn.fetchval.return_value = None
+    mock_conn.fetchval.side_effect = [1, 1, 1]
 
     response = client.post(
-        "/api/player/episodes/1/complete",
-        headers={"X-Player-Session": "old-token"},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "session displaced"
-    assert mock_conn.fetchval.await_count == 1
-    mock_conn.execute.assert_not_awaited()
-
-
-def test_complete_returns_404_when_episode_missing(
-    client: TestClient,
-    mock_conn: AsyncMock,
-) -> None:
-    install_transaction_mock(mock_conn)
-    mock_conn.fetchval.side_effect = [1, None]
-
-    response = client.post(
-        "/api/player/episodes/1/complete",
-        headers={"X-Player-Session": "active-token"},
-    )
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "episode not found"
-    assert mock_conn.fetchval.await_count == 2
-    mock_conn.execute.assert_not_awaited()
-
-
-def test_complete_writes_only_after_active_session_guard(
-    client: TestClient,
-    mock_conn: AsyncMock,
-) -> None:
-    install_transaction_mock(mock_conn)
-    mock_conn.fetchval.side_effect = [1, 1, 1, 2000]
-
-    response = client.post(
-        "/api/player/episodes/1/complete",
+        "/api/player/episodes/1/progress",
+        json={"position_ms": 2000, "duration_ms": 2000, "completed": True},
         headers={"X-Player-Session": "active-token"},
     )
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-    assert mock_conn.fetchval.await_count == 4
     mock_conn.execute.assert_awaited_once()
     execute_args, _ = mock_conn.execute.await_args
     assert execute_args[1:] == (1, 2000, 2000, True)
-
-
-def test_complete_without_existing_duration_writes_zero_duration(
-    client: TestClient,
-    mock_conn: AsyncMock,
-) -> None:
-    install_transaction_mock(mock_conn)
-    mock_conn.fetchval.side_effect = [1, 1, 1, None]
-
-    response = client.post(
-        "/api/player/episodes/1/complete",
-        headers={"X-Player-Session": "active-token"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-    execute_args, _ = mock_conn.execute.await_args
-    assert execute_args[1:] == (1, 0, 0, True)
 
 
 def test_delete_progress_does_not_require_session_token(

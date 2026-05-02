@@ -53,7 +53,6 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     error: sessionError,
     transientError: sessionTransientError,
     postProgress,
-    postComplete,
     claim,
   } = session
   const [replayConfirmNeeded, setReplayConfirmNeeded] = useState(false)
@@ -120,12 +119,15 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     return Number.isFinite(d) && d > 0 ? Math.round(d * 1000) : null
   }, [])
 
-  const saveProgress = useCallback(async () => {
-    const audio = audioRef.current
-    if (!audio) return
-    const positionMs = Math.round(audio.currentTime * 1000)
-    await postProgress(episode.id, positionMs, finiteDurationMs())
-  }, [episode.id, finiteDurationMs, postProgress])
+  const saveProgress = useCallback(
+    async (completed = false) => {
+      const audio = audioRef.current
+      if (!audio) return
+      const positionMs = Math.round(audio.currentTime * 1000)
+      await postProgress(episode.id, positionMs, finiteDurationMs(), completed)
+    },
+    [episode.id, finiteDurationMs, postProgress],
+  )
 
   const togglePlayPause = () => {
     const audio = audioRef.current
@@ -300,7 +302,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         onEnded={() => {
           setIsPlaying(false)
           if (sessionStatus === 'active') {
-            void postComplete(episode.id)
+            void saveProgress(true)
           }
           setReplayConfirmNeeded(true)
         }}
