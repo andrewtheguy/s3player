@@ -47,14 +47,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   const initialPositionMsRef = useRef<number | null>(null)
   const seededInitialPosRef = useRef(false)
 
-  const session = usePlayerSession(episode.id)
+  const session = usePlayerSession()
   const {
     status: sessionStatus,
     error: sessionError,
     transientError: sessionTransientError,
     postProgress,
     postComplete,
-    reclaim,
+    claim,
   } = session
   const isBlocked = sessionStatus !== 'active'
   const isTakingOver = sessionStatus === 'pending'
@@ -115,15 +115,12 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     return Number.isFinite(d) && d > 0 ? Math.round(d * 1000) : null
   }, [])
 
-  const saveProgress = useCallback(
-    async (options?: { paused?: boolean }) => {
-      const audio = audioRef.current
-      if (!audio) return
-      const positionMs = Math.round(audio.currentTime * 1000)
-      await postProgress(positionMs, finiteDurationMs(), options)
-    },
-    [finiteDurationMs, postProgress],
-  )
+  const saveProgress = useCallback(async () => {
+    const audio = audioRef.current
+    if (!audio) return
+    const positionMs = Math.round(audio.currentTime * 1000)
+    await postProgress(episode.id, positionMs, finiteDurationMs())
+  }, [episode.id, finiteDurationMs, postProgress])
 
   const togglePlayPause = () => {
     const audio = audioRef.current
@@ -237,14 +234,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   }, [isPlaying, sessionStatus, saveProgress])
 
   const handleTakeOver = useCallback(async () => {
-    const result = await reclaim()
+    const result = await claim()
     if (result !== 'ok') {
       console.error('Take over playback failed', {
         episodeId: episode.id,
         result,
       })
     }
-  }, [episode.id, reclaim])
+  }, [episode.id, claim])
 
   const toggleSeekMode = () => {
     setSeekMode((prev) => {
@@ -282,13 +279,13 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         onPause={() => {
           setIsPlaying(false)
           if (sessionStatus === 'active') {
-            void saveProgress({ paused: true })
+            void saveProgress()
           }
         }}
         onEnded={() => {
           setIsPlaying(false)
           if (sessionStatus === 'active') {
-            void postComplete()
+            void postComplete(episode.id)
           }
         }}
         onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
