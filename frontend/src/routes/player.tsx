@@ -54,7 +54,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     transientError: sessionTransientError,
     postProgress,
     postComplete,
-    reclaim,
+    claim,
   } = session
   const isBlocked = sessionStatus !== 'active'
   const isTakingOver = sessionStatus === 'pending'
@@ -234,14 +234,14 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   }, [isPlaying, sessionStatus, saveProgress])
 
   const handleTakeOver = useCallback(async () => {
-    const result = await reclaim()
+    const result = await claim()
     if (result !== 'ok') {
       console.error('Take over playback failed', {
         episodeId: episode.id,
         result,
       })
     }
-  }, [episode.id, reclaim])
+  }, [episode.id, claim])
 
   const toggleSeekMode = () => {
     setSeekMode((prev) => {

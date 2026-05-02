@@ -52,7 +52,6 @@ export interface PlayerSessionContextValue {
   error: string | null
   transientError: string | null
   claim: () => Promise<SessionWriteResult>
-  reclaim: () => Promise<SessionWriteResult>
   validate: () => Promise<SessionWriteResult>
   postProgress: (
     episodeId: number,
@@ -196,7 +195,6 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     error,
     transientError,
     claim,
-    reclaim: claim,
     validate,
     postProgress,
     postComplete,
