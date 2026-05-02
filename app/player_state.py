@@ -33,7 +33,6 @@ class RecentEpisode:
     position_ms: int
     duration_ms: int | None
     last_played_at: datetime
-    completed: bool
 
 
 _CLAIM_SQL = """
@@ -72,7 +71,7 @@ ON CONFLICT (episode_id) DO UPDATE
 _LIST_SQL_BASE = """
 SELECT eps.episode_id, e.aired_on, e.time_slot,
        s.id AS show_id, s.name AS show_name, s.station,
-       eps.position_ms, eps.duration_ms, eps.last_played_at, eps.completed
+       eps.position_ms, eps.duration_ms, eps.last_played_at
 FROM episode_play_state eps
 JOIN episodes e ON e.id = eps.episode_id
 JOIN shows s ON s.id = e.show_id
@@ -91,7 +90,6 @@ def _row_to_recent(r: Any) -> RecentEpisode:
         position_ms=r["position_ms"],
         duration_ms=r["duration_ms"],
         last_played_at=r["last_played_at"],
-        completed=r["completed"],
     )
 
 
@@ -171,6 +169,13 @@ async def mark_complete(
             duration,
             True,
         )
+
+
+async def delete_progress(conn: PoolConnectionProxy, episode_id: int) -> None:
+    await conn.execute(
+        "DELETE FROM episode_play_state WHERE episode_id = $1",
+        episode_id,
+    )
 
 
 async def get_progress(conn: PoolConnectionProxy, episode_id: int) -> Progress:

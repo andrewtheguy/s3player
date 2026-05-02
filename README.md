@@ -77,5 +77,5 @@ and the SPA redirects there automatically on a 401.
   and disables playback controls until the user explicitly takes over again.
 - **Home page** (`/stations`) shows two rows above the stations grid:
   *Continue listening* (in-progress, not completed, position more than 30s
-  before the end) and *Recently played* (history). Both are hidden when
+  before the end) and *Recently Completed* (history). Both are hidden when
   empty.

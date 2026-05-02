@@ -55,6 +55,15 @@ export async function apiPostJson<T>(
   return (await response.json()) as T
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  const response = await fetch(path, { method: 'DELETE' })
+  if (response.status === 401) redirectToLogin()
+  if (!response.ok) {
+    throw new ApiError(response.status, await readErrorDetail(response))
+  }
+  return (await response.json()) as T
+}
+
 export interface Station {
   id: string
   show_count: number
@@ -128,7 +137,6 @@ export interface RecentEpisode {
   position_ms: number
   duration_ms: number | null
   last_played_at: string
-  completed: boolean
 }
 
 export interface RecentResponse {
@@ -169,4 +177,6 @@ export const playerApi = {
     ),
   getProgress: (episodeId: number) =>
     apiFetch<ProgressResponse>(`/api/player/episodes/${episodeId}/progress`),
+  deleteProgress: (episodeId: number) =>
+    apiDelete<{ status: string }>(`/api/player/episodes/${episodeId}/progress`),
 }

@@ -70,7 +70,8 @@ The production Python server enforces authentication in `site_password_gate` bef
 | `POST /api/player/episodes/{id}/progress` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
 | `POST /api/player/episodes/{id}/complete` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
 | `GET /api/player/episodes/{id}/progress` | Yes | No | Reads saved progress. |
-| `GET /api/player/recent`, `GET /api/player/in-progress` | Yes | No | Reads playback history rows. |
+| `DELETE /api/player/episodes/{id}/progress` | Yes | No | Drops the play-state row; idempotent. Used by the home page X button to dismiss a Continue-listening entry. |
+| `GET /api/player/recent-completed`, `GET /api/player/in-progress` | Yes | No | Reads playback history rows. |
 | All other `/api/*` paths | Yes | N/A | Site auth is checked before routing; authenticated unknown paths return 404. |
 | SPA/static routes, `/docs`, `/redoc`, `/openapi.json` | Yes | No | Unauthenticated requests redirect to `/login?next=...`; authenticated requests continue. |
 
@@ -131,7 +132,7 @@ The indexer is safe to re-run: every write is an upsert or a conditional update.
 
 ```
 /                              → redirect to /stations
-/stations                      → StationsPage   (Continue listening + Recently played + station list)
+/stations                      → StationsPage   (Continue listening + Recently Completed + station list)
 /stations/:station             → ShowsPage
 /shows/:show_id                → YearsPage
 /shows/:show_id/:year          → MonthsPage
@@ -192,7 +193,7 @@ PlayerPage mounts
 The stations page renders two horizontal rails above the stations grid:
 
 - **Continue listening** — `GET /api/player/in-progress` returns incomplete episodes with enough saved duration and remaining playback time to resume.
-- **Recently played** — `GET /api/player/recent` returns completed episodes ordered by last playback.
+- **Recently Completed** — `GET /api/player/recent-completed` returns completed episodes ordered by last playback.
 
 The two filters are mutually exclusive, so an episode should not appear in both.
 
