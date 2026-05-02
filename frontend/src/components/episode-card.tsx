@@ -1,9 +1,11 @@
+import { X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { RecentEpisode } from '@/lib/api'
 
 interface Props {
   episode: RecentEpisode
   showProgress?: boolean
+  onRemove?: () => void
 }
 
 function formatRelative(iso: string): string {
@@ -23,6 +25,16 @@ function formatRelative(iso: string): string {
   return new Date(ts).toLocaleDateString()
 }
 
+function formatPosition(ms: number): string {
+  const totalSec = Math.floor(Math.max(0, ms) / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`
+}
+
 function formatTimeSlot(slot: string | null): string {
   if (!slot) return ''
   const m = /^(\d{2})(\d{2})_(\d{2})(\d{2})$/.exec(slot)
@@ -30,7 +42,11 @@ function formatTimeSlot(slot: string | null): string {
   return `${m[1]}:${m[2]}–${m[3]}:${m[4]}`
 }
 
-export function EpisodeCard({ episode, showProgress = false }: Props) {
+export function EpisodeCard({
+  episode,
+  showProgress = false,
+  onRemove,
+}: Props) {
   const pct =
     showProgress && episode.duration_ms != null && episode.duration_ms > 0
       ? Math.min(
@@ -42,8 +58,22 @@ export function EpisodeCard({ episode, showProgress = false }: Props) {
   return (
     <Link
       to={`/player/${episode.id}`}
-      className="block min-w-[16rem] rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
+      className="relative block min-w-[16rem] rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
     >
+      {onRemove ? (
+        <button
+          type="button"
+          aria-label={`Remove ${episode.show_name} from Continue listening`}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onRemove()
+          }}
+          className="absolute top-1.5 right-1.5 grid size-6 place-items-center rounded-full text-muted-foreground opacity-70 transition hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="size-3.5" />
+        </button>
+      ) : null}
       <div className="text-xs uppercase tracking-wide text-muted-foreground">
         {episode.station}
       </div>
@@ -52,19 +82,19 @@ export function EpisodeCard({ episode, showProgress = false }: Props) {
         {episode.aired_on}
         {timeSlot ? ` · ${timeSlot}` : ''}
       </div>
-      {pct != null ? (
+      {pct != null && episode.duration_ms != null ? (
         <div className="mt-3">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {Math.round(pct)}% played
+            {formatPosition(episode.position_ms)} /{' '}
+            {formatPosition(episode.duration_ms)}
           </div>
         </div>
       ) : (
         <div className="mt-3 text-xs text-muted-foreground">
-          {episode.completed ? 'Completed' : 'Played'} ·{' '}
-          {formatRelative(episode.last_played_at)}
+          Completed · {formatRelative(episode.last_played_at)}
         </div>
       )}
     </Link>

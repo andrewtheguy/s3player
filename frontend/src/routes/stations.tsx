@@ -1,7 +1,13 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { EpisodeCard } from '@/components/episode-card'
-import type { RecentResponse, StationsResponse } from '@/lib/api'
+import {
+  playerApi,
+  type RecentEpisode,
+  type RecentResponse,
+  type StationsResponse,
+} from '@/lib/api'
 import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
@@ -9,10 +15,12 @@ function HomeRow({
   title,
   episodes,
   showProgress,
+  onRemove,
 }: {
   title: string
   episodes: RecentResponse['episodes']
   showProgress: boolean
+  onRemove?: (episode: RecentEpisode) => void
 }) {
   if (episodes.length === 0) return null
   return (
@@ -21,7 +29,11 @@ function HomeRow({
       <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
         {episodes.map((e) => (
           <div key={e.id} className="shrink-0">
-            <EpisodeCard episode={e} showProgress={showProgress} />
+            <EpisodeCard
+              episode={e}
+              showProgress={showProgress}
+              onRemove={onRemove ? () => onRemove(e) : undefined}
+            />
           </div>
         ))}
       </div>
@@ -36,7 +48,28 @@ export function StationsPage() {
   const { data: inProgress } = useFetch<RecentResponse>(
     '/api/player/in-progress',
   )
-  const { data: recent } = useFetch<RecentResponse>('/api/player/recent')
+  const { data: recent } = useFetch<RecentResponse>(
+    '/api/player/recent-completed',
+  )
+
+  const [inProgressEpisodes, setInProgressEpisodes] = useState<
+    RecentResponse['episodes']
+  >([])
+  useEffect(() => {
+    setInProgressEpisodes(inProgress?.episodes ?? [])
+  }, [inProgress])
+
+  const handleRemoveInProgress = (episode: RecentEpisode) => {
+    setInProgressEpisodes((prev) => prev.filter((e) => e.id !== episode.id))
+    playerApi.deleteProgress(episode.id).catch((err: unknown) => {
+      console.error('Failed to remove from Continue listening', err)
+      setInProgressEpisodes((prev) =>
+        [...prev, episode].sort(
+          (a, b) => Date.parse(b.last_played_at) - Date.parse(a.last_played_at),
+        ),
+      )
+    })
+  }
 
   useDocumentTitle('Stations')
 
@@ -50,11 +83,12 @@ export function StationsPage() {
 
       <HomeRow
         title="Continue listening"
-        episodes={inProgress?.episodes ?? []}
+        episodes={inProgressEpisodes}
         showProgress
+        onRemove={handleRemoveInProgress}
       />
       <HomeRow
-        title="Recently played"
+        title="Recently Completed"
         episodes={recent?.episodes ?? []}
         showProgress={false}
       />

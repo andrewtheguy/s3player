@@ -37,7 +37,6 @@ class RecentEpisode(BaseModel):
     position_ms: int
     duration_ms: int | None
     last_played_at: datetime
-    completed: bool
 
 
 class RecentResponse(BaseModel):
@@ -70,7 +69,6 @@ def _recent_episode(episode: player_state.RecentEpisode) -> RecentEpisode:
         position_ms=episode.position_ms,
         duration_ms=episode.duration_ms,
         last_played_at=episode.last_played_at,
-        completed=episode.completed,
     )
 
 
@@ -171,7 +169,25 @@ async def get_progress(
     return _progress_response(await player_state.get_progress(conn, episode_id))
 
 
-@router.get("/recent", summary="List recently completed episodes")
+@router.delete(
+    "/episodes/{episode_id}/progress",
+    summary="Remove saved playback progress for an episode",
+)
+async def delete_progress(
+    episode_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> dict[str, str]:
+    """Drop the play-state row for an episode so it disappears from the
+    in-progress and recently-completed lists.
+
+    Idempotent: returns 200 whether or not a row existed. Does not require a
+    player session token.
+    """
+    await player_state.delete_progress(conn, episode_id)
+    return {"status": "ok"}
+
+
+@router.get("/recent-completed", summary="List recently completed episodes")
 async def list_recent(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
@@ -192,7 +208,7 @@ async def list_in_progress(
 ) -> RecentResponse:
     """List incomplete episodes that have enough saved duration and remaining time to resume.
 
-    Mutually exclusive with `/recent`.
+    Mutually exclusive with `/recent-completed`.
     """
     episodes = await player_state.list_in_progress(conn, limit)
     return RecentResponse(episodes=[_recent_episode(e) for e in episodes])

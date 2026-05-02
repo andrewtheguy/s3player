@@ -183,6 +183,19 @@ def test_complete_without_existing_duration_writes_zero_duration(
     assert execute_args[1:] == (1, 0, 0, True)
 
 
+def test_delete_progress_does_not_require_session_token(
+    client: TestClient,
+    mock_conn: AsyncMock,
+) -> None:
+    response = client.delete("/api/player/episodes/42/progress")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    mock_conn.execute.assert_awaited_once()
+    execute_args, _ = mock_conn.execute.await_args
+    assert execute_args[1:] == (42,)
+
+
 def test_get_progress_defaults_for_missing_episode(
     client: TestClient,
     mock_conn: AsyncMock,
