@@ -12,8 +12,8 @@ function formatRelative(iso: string): string {
   const ts = Date.parse(iso)
   if (Number.isNaN(ts)) return ''
   const diffMs = Date.now() - ts
-  const sec = Math.floor(diffMs / 1000)
-  if (sec < 60) return 'just now'
+  const sec = Math.max(0, Math.floor(diffMs / 1000))
+  if (sec < 60) return `${sec}s ago`
   const min = Math.floor(sec / 60)
   if (min < 60) return `${min}m ago`
   const hr = Math.floor(min / 60)
@@ -23,6 +23,12 @@ function formatRelative(iso: string): string {
   const week = Math.floor(day / 7)
   if (week < 5) return `${week}w ago`
   return new Date(ts).toLocaleDateString()
+}
+
+function formatAbsolute(iso: string): string {
+  const ts = Date.parse(iso)
+  if (Number.isNaN(ts)) return iso
+  return new Date(ts).toLocaleString()
 }
 
 function formatPosition(ms: number): string {
@@ -93,7 +99,10 @@ export function EpisodeCard({
           </div>
         </div>
       ) : (
-        <div className="mt-3 text-xs text-muted-foreground">
+        <div
+          className="mt-3 text-xs text-muted-foreground"
+          title={formatAbsolute(episode.last_played_at)}
+        >
           Completed · {formatRelative(episode.last_played_at)}
         </div>
       )}

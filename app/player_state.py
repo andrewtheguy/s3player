@@ -65,7 +65,7 @@ ON CONFLICT (episode_id) DO UPDATE
   SET position_ms = EXCLUDED.position_ms,
       duration_ms = COALESCE(EXCLUDED.duration_ms, episode_play_state.duration_ms),
       last_played_at = EXCLUDED.last_played_at,
-      completed = episode_play_state.completed OR EXCLUDED.completed
+      completed = EXCLUDED.completed
 """
 
 _LIST_SQL_BASE = """

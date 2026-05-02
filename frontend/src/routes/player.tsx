@@ -56,7 +56,9 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     postComplete,
     claim,
   } = session
-  const isBlocked = sessionStatus !== 'active'
+  const [replayConfirmNeeded, setReplayConfirmNeeded] = useState(false)
+  const isSessionBlocked = sessionStatus !== 'active'
+  const isBlocked = isSessionBlocked || replayConfirmNeeded
   const isTakingOver = sessionStatus === 'pending'
   const lastStableStatusRef = useRef<PlayerSessionStatus>(sessionStatus)
   useEffect(() => {
@@ -88,7 +90,8 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   }, [])
 
   // Fetch saved progress once; seek either now (if audio is loaded) or when
-  // onLoadedMetadata fires.
+  // onLoadedMetadata fires. Completed episodes seed at the saved end position
+  // and surface a replay-confirm gate so they don't look like a fresh episode.
   useEffect(() => {
     let cancelled = false
     playerApi
@@ -96,11 +99,13 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
       .then((p) => {
         if (cancelled) return
         initialPositionMsRef.current = p.position_ms
+        setReplayConfirmNeeded(p.completed)
         trySeedInitialPosition()
       })
       .catch(() => {
         if (cancelled) return
         initialPositionMsRef.current = 0
+        setReplayConfirmNeeded(false)
         trySeedInitialPosition()
       })
     return () => {
@@ -243,6 +248,16 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     }
   }, [episode.id, claim])
 
+  const handleReplayConfirm = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.currentTime = 0
+      setCurrentTime(0)
+    }
+    initialPositionMsRef.current = 0
+    setReplayConfirmNeeded(false)
+  }, [])
+
   const toggleSeekMode = () => {
     setSeekMode((prev) => {
       const next = prev === 'chapter' ? 'timeline' : 'chapter'
@@ -293,7 +308,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         <track kind="captions" />
       </audio>
 
-      {isBlocked && (
+      {isSessionBlocked && (
         <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
           <p className="font-medium">
             {displayStatus === 'error'
@@ -326,6 +341,24 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
               : isTakingOver
                 ? 'Starting...'
                 : 'Start playback'}
+          </button>
+        </div>
+      )}
+
+      {!isSessionBlocked && replayConfirmNeeded && (
+        <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
+          <p className="font-medium">Episode already completed</p>
+          <p className="text-muted-foreground">
+            You've finished this episode. Replay from the beginning to listen
+            again — this resets the saved position and moves it back to Continue
+            listening.
+          </p>
+          <button
+            type="button"
+            onClick={handleReplayConfirm}
+            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Replay from beginning
           </button>
         </div>
       )}
