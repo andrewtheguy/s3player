@@ -4,6 +4,7 @@ import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { EpisodeCard } from '@/components/episode-card'
 import {
   playerApi,
+  type RecentEpisode,
   type RecentResponse,
   type StationsResponse,
 } from '@/lib/api'
@@ -19,7 +20,7 @@ function HomeRow({
   title: string
   episodes: RecentResponse['episodes']
   showProgress: boolean
-  onRemove?: (episodeId: number) => void
+  onRemove?: (episode: RecentEpisode) => void
 }) {
   if (episodes.length === 0) return null
   return (
@@ -31,7 +32,7 @@ function HomeRow({
             <EpisodeCard
               episode={e}
               showProgress={showProgress}
-              onRemove={onRemove ? () => onRemove(e.id) : undefined}
+              onRemove={onRemove ? () => onRemove(e) : undefined}
             />
           </div>
         ))}
@@ -58,11 +59,15 @@ export function StationsPage() {
     setInProgressEpisodes(inProgress?.episodes ?? [])
   }, [inProgress])
 
-  const handleRemoveInProgress = (episodeId: number) => {
-    const previous = inProgressEpisodes
-    setInProgressEpisodes(previous.filter((e) => e.id !== episodeId))
-    playerApi.deleteProgress(episodeId).catch(() => {
-      setInProgressEpisodes(previous)
+  const handleRemoveInProgress = (episode: RecentEpisode) => {
+    setInProgressEpisodes((prev) => prev.filter((e) => e.id !== episode.id))
+    playerApi.deleteProgress(episode.id).catch((err: unknown) => {
+      console.error('Failed to remove from Continue listening', err)
+      setInProgressEpisodes((prev) =>
+        [...prev, episode].sort(
+          (a, b) => Date.parse(b.last_played_at) - Date.parse(a.last_played_at),
+        ),
+      )
     })
   }
 
