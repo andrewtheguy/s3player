@@ -18,6 +18,7 @@ class ClaimResponse(BaseModel):
 class ProgressRequest(BaseModel):
     position_ms: int = Field(ge=0)
     duration_ms: int | None = Field(default=None, ge=0)
+    completed: bool = False
 
 
 class ProgressResponse(BaseModel):
@@ -111,7 +112,7 @@ async def save_progress(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
     x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
-    """Persist the current playback position (and optionally the total duration) for an episode.
+    """Persist playback progress for an episode and, when `completed=true`, mark it fully played.
 
     Requires `X-Player-Session`. Returns 401 if the header is missing, 409 if
     the token has been displaced, and 404 if the episode does not exist.
@@ -124,28 +125,8 @@ async def save_progress(
             episode_id,
             body.position_ms,
             body.duration_ms,
+            body.completed,
         )
-    except player_state.SessionDisplaced as e:
-        raise HTTPException(status_code=409, detail=e.detail) from e
-    except player_state.EpisodeNotFound as e:
-        raise HTTPException(status_code=404, detail=e.detail) from e
-    return {"status": "ok"}
-
-
-@router.post("/episodes/{episode_id}/complete", summary="Mark an episode as completed")
-async def mark_complete(
-    episode_id: Annotated[int, Path(ge=1)],
-    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
-    x_player_session: Annotated[str | None, Header()] = None,
-) -> dict[str, str]:
-    """Mark an episode as fully played.
-
-    Requires `X-Player-Session`. Returns 401 if the header is missing, 409 if
-    the token has been displaced, and 404 if the episode does not exist.
-    """
-    session_token = _require_session_token(x_player_session)
-    try:
-        await player_state.mark_complete(conn, session_token, episode_id)
     except player_state.SessionDisplaced as e:
         raise HTTPException(status_code=409, detail=e.detail) from e
     except player_state.EpisodeNotFound as e:

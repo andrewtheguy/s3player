@@ -65,7 +65,7 @@ ON CONFLICT (episode_id) DO UPDATE
   SET position_ms = EXCLUDED.position_ms,
       duration_ms = COALESCE(EXCLUDED.duration_ms, episode_play_state.duration_ms),
       last_played_at = EXCLUDED.last_played_at,
-      completed = episode_play_state.completed OR EXCLUDED.completed
+      completed = EXCLUDED.completed
 """
 
 _LIST_SQL_BASE = """
@@ -132,6 +132,7 @@ async def save_progress(
     episode_id: int,
     position_ms: int,
     duration_ms: int | None,
+    completed: bool,
 ) -> None:
     async with conn.transaction():
         await _guard_session(conn, session_token)
@@ -143,31 +144,7 @@ async def save_progress(
             episode_id,
             position_ms,
             duration_ms,
-            False,
-        )
-
-
-async def mark_complete(
-    conn: PoolConnectionProxy,
-    session_token: str,
-    episode_id: int,
-) -> None:
-    async with conn.transaction():
-        await _guard_session(conn, session_token)
-        if not await _episode_exists(conn, episode_id):
-            raise EpisodeNotFound
-        await _touch_session(conn, session_token)
-        existing_duration = await conn.fetchval(
-            "SELECT duration_ms FROM episode_play_state WHERE episode_id = $1",
-            episode_id,
-        )
-        duration = existing_duration if existing_duration is not None else 0
-        await conn.execute(
-            _PROGRESS_UPSERT_SQL,
-            episode_id,
-            duration,
-            duration,
-            True,
+            completed,
         )
 
 

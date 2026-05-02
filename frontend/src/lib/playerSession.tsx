@@ -57,8 +57,8 @@ export interface PlayerSessionContextValue {
     episodeId: number,
     positionMs: number,
     durationMs: number | null,
+    completed: boolean,
   ) => Promise<SessionWriteResult>
-  postComplete: (episodeId: number) => Promise<SessionWriteResult>
 }
 
 const HEARTBEAT_MS = 30_000
@@ -148,26 +148,18 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       episodeId: number,
       positionMs: number,
       durationMs: number | null,
+      completed: boolean,
     ): Promise<SessionWriteResult> => {
       const token = tokenRef.current
       if (!token) return 'inactive'
       try {
-        await playerApi.progress(episodeId, token, positionMs, durationMs)
-        setTransientError(null)
-        return 'ok'
-      } catch (e) {
-        return handleSessionError(e)
-      }
-    },
-    [handleSessionError],
-  )
-
-  const postComplete = useCallback(
-    async (episodeId: number): Promise<SessionWriteResult> => {
-      const token = tokenRef.current
-      if (!token) return 'inactive'
-      try {
-        await playerApi.complete(episodeId, token)
+        await playerApi.progress(
+          episodeId,
+          token,
+          positionMs,
+          durationMs,
+          completed,
+        )
         setTransientError(null)
         return 'ok'
       } catch (e) {
@@ -210,7 +202,6 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     claim,
     validate,
     postProgress,
-    postComplete,
   }
 
   return (
