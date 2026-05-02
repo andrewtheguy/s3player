@@ -302,6 +302,7 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
           if (sessionStatus === 'active') {
             void postComplete(episode.id)
           }
+          setReplayConfirmNeeded(true)
         }}
         onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
       >
