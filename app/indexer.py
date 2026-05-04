@@ -69,7 +69,11 @@ def _list_keys(client: Any, bucket: str, prefix: str) -> list[str]:
 def _fetch_metadata(client: Any, bucket: str, metadata_key: str) -> dict[str, Any] | None:
     try:
         obj = client.get_object(Bucket=bucket, Key=metadata_key)
-        body = obj["Body"].read()
+        body_stream = obj["Body"]
+        try:
+            body = body_stream.read()
+        finally:
+            body_stream.close()
     except ClientError as e:
         logger.warning("metadata fetch failed for %s: %s", metadata_key, e)
         return None

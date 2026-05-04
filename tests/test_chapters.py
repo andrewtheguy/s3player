@@ -55,5 +55,16 @@ def test_normalize_skips_non_int_ms() -> None:
     assert normalize_chapters(raw) == [{"title": "ok", "start": 1000, "end": 2000}]
 
 
+def test_normalize_skips_invalid_ranges() -> None:
+    raw = [
+        {"start_ms_in_show": -1, "end_ms_in_show": 1000, "title": "neg start"},
+        {"start_ms_in_show": 0, "end_ms_in_show": -1, "title": "neg end"},
+        {"start_ms_in_show": 1000, "end_ms_in_show": 1000, "title": "zero length"},
+        {"start_ms_in_show": 2000, "end_ms_in_show": 1500, "title": "end before start"},
+        {"start_ms_in_show": 1000, "end_ms_in_show": 2000, "title": "ok"},
+    ]
+    assert normalize_chapters(raw) == [{"title": "ok", "start": 1000, "end": 2000}]
+
+
 def test_normalize_empty_input() -> None:
     assert normalize_chapters([]) == []
