@@ -1,13 +1,12 @@
 import asyncio
 import json
 import logging
-import subprocess
 from typing import Any
 
 from asyncpg.pool import PoolConnectionProxy
 from botocore.exceptions import ClientError
 
-from app.chapters import Chapter, normalize_chapters
+from app.chapters import normalize_chapters
 from app.config import Settings, get_settings
 from app.db import bootstrap_schema, close_pool, get_pool
 from app.parse_key import ParsedEpisode, parse_episode_key
@@ -16,12 +15,11 @@ from app.s3_client import get_s3_client
 logger = logging.getLogger(__name__)
 
 STATION_PREFIXES: dict[str, str] = {
-    "shows/rthk/radio1/": "rthk-radio1",
-    "shows/rthk/radio2/": "rthk-radio2",
+    "shows/rthk-radio1/": "rthk-radio1",
+    "shows/rthk-radio2/": "rthk-radio2",
 }
 
-FFPROBE_PRESIGN_EXPIRES_IN = 300
-FFPROBE_TIMEOUT_SECONDS = 60
+METADATA_SUFFIX = ".metadata.json"
 
 _SHOW_UPSERT = """
 INSERT INTO shows (station, name) VALUES ($1, $2)
@@ -68,41 +66,22 @@ def _list_keys(client: Any, bucket: str, prefix: str) -> list[str]:
     return keys
 
 
-def _ffprobe_chapters(url: str) -> list[Chapter] | None:
+def _fetch_metadata(client: Any, bucket: str, metadata_key: str) -> dict[str, Any] | None:
     try:
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_chapters",
-                url,
-            ],
-            capture_output=True,
-            timeout=FFPROBE_TIMEOUT_SECONDS,
-            check=True,
-        )
-    except FileNotFoundError:
-        logger.warning("ffprobe binary not found on PATH; chapters will be NULL")
-        return None
-    except subprocess.TimeoutExpired:
-        logger.warning("ffprobe timed out reading %s", url)
-        return None
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr.decode(errors="replace") if e.stderr else ""
-        logger.warning("ffprobe failed for %s: %s", url, stderr.strip() or e)
+        obj = client.get_object(Bucket=bucket, Key=metadata_key)
+        body = obj["Body"].read()
+    except ClientError as e:
+        logger.warning("metadata fetch failed for %s: %s", metadata_key, e)
         return None
     try:
-        data = json.loads(result.stdout)
+        data = json.loads(body)
     except json.JSONDecodeError as e:
-        logger.warning("ffprobe returned non-JSON for %s: %s", url, e)
+        logger.warning("metadata is not valid JSON for %s: %s", metadata_key, e)
         return None
-    raw = data.get("chapters")
-    if not isinstance(raw, list):
-        return []
-    return normalize_chapters(raw)
+    if not isinstance(data, dict):
+        logger.warning("metadata top-level is not an object for %s", metadata_key)
+        return None
+    return data
 
 
 async def _store_chapters(
@@ -110,20 +89,16 @@ async def _store_chapters(
     client: Any,
     settings: Settings,
     episode_id: int,
-    s3_key: str,
+    metadata_key: str,
 ) -> bool:
-    try:
-        url = client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.s3_bucket, "Key": s3_key},
-            ExpiresIn=FFPROBE_PRESIGN_EXPIRES_IN,
-        )
-    except ClientError as e:
-        logger.warning("presign failed for %s: %s", s3_key, e)
+    meta = await asyncio.to_thread(_fetch_metadata, client, settings.s3_bucket, metadata_key)
+    if meta is None:
         return False
-    chapters = await asyncio.to_thread(_ffprobe_chapters, url)
-    if chapters is None:
+    raw = meta.get("chapters")
+    if not isinstance(raw, list):
+        logger.warning("metadata chapters missing or not a list for %s", metadata_key)
         return False
+    chapters = normalize_chapters(raw)
     await conn.execute(_EPISODE_SET_CHAPTERS, chapters, episode_id)
     return True
 
@@ -153,7 +128,8 @@ async def _run() -> None:
     pool = await get_pool()
 
     scanned = 0
-    skipped_non_m4a = 0
+    skipped_non_metadata = 0
+    skipped_missing_audio = 0
     skipped_unparseable = 0
     inserted = 0
     already_present = 0
@@ -171,31 +147,42 @@ async def _run() -> None:
                 logger.info("scanning %s (station=%s)", prefix, station)
                 keys = await asyncio.to_thread(_list_keys, client, settings.s3_bucket, prefix)
                 total = len(keys)
-                logger.info("found %d keys under %s", total, prefix)
-                for i, key in enumerate(keys, 1):
-                    progress = f"[{i}/{total}]"
-                    scanned += 1
-                    if not key.endswith(".m4a"):
-                        skipped_non_m4a += 1
-                        logger.info("%s skip non-m4a: %s", progress, key)
+                audio_keys_set = {k for k in keys if k.endswith(".m4a")}
+                metadata_keys = [k for k in keys if k.endswith(METADATA_SUFFIX)]
+                scanned += total
+                skipped_non_metadata += total - len(metadata_keys)
+                logger.info(
+                    "found %d keys under %s (%d metadata sidecars, %d audio files)",
+                    total,
+                    prefix,
+                    len(metadata_keys),
+                    len(audio_keys_set),
+                )
+                meta_total = len(metadata_keys)
+                for i, metadata_key in enumerate(metadata_keys, 1):
+                    progress = f"[{i}/{meta_total}]"
+                    audio_key = metadata_key[: -len(METADATA_SUFFIX)]
+                    if audio_key not in audio_keys_set:
+                        skipped_missing_audio += 1
+                        logger.warning("%s sidecar without audio file: %s", progress, metadata_key)
                         continue
-                    present_keys.add(key)
-                    parsed = parse_episode_key(key)
+                    parsed = parse_episode_key(audio_key)
                     if parsed is None:
                         skipped_unparseable += 1
-                        logger.warning("%s could not parse: %s", progress, key)
+                        logger.warning("%s could not parse: %s", progress, audio_key)
                         continue
-                    new_id = await _index_one(conn, show_cache, station, key, parsed)
+                    present_keys.add(audio_key)
+                    new_id = await _index_one(conn, show_cache, station, audio_key, parsed)
                     if new_id is None:
                         already_present += 1
-                        logger.info("%s already indexed: %s", progress, key)
+                        logger.info("%s already indexed: %s", progress, audio_key)
                         continue
                     inserted += 1
-                    if await _store_chapters(conn, client, settings, new_id, key):
+                    if await _store_chapters(conn, client, settings, new_id, metadata_key):
                         chapters_filled += 1
-                        logger.info("%s inserted with chapters: %s", progress, key)
+                        logger.info("%s inserted with chapters: %s", progress, audio_key)
                     else:
-                        logger.info("%s inserted (no chapters): %s", progress, key)
+                        logger.info("%s inserted (no chapters): %s", progress, audio_key)
 
             present_list = list(present_keys)
             soft_deleted = _parse_update_count(
@@ -209,13 +196,14 @@ async def _run() -> None:
 
     logger.info(
         "done: scanned=%d inserted=%d already_present=%d "
-        "skipped_unparseable=%d skipped_non_m4a=%d chapters_filled=%d "
-        "soft_deleted=%d restored=%d",
+        "skipped_unparseable=%d skipped_non_metadata=%d skipped_missing_audio=%d "
+        "chapters_filled=%d soft_deleted=%d restored=%d",
         scanned,
         inserted,
         already_present,
         skipped_unparseable,
-        skipped_non_m4a,
+        skipped_non_metadata,
+        skipped_missing_audio,
         chapters_filled,
         soft_deleted,
         restored,

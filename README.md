@@ -1,10 +1,12 @@
 # s3player
 
 A password-gated player for S3-hosted radio recordings. Episodes are indexed
-from S3, chapters extracted via `ffprobe`, and playback position is persisted
-to Postgres so reloading or returning later resumes where you left off. Only
-one tab/device can be in active player mode at a time — opening a new player
-displaces the previous one.
+from S3 — the indexer treats `{audio_key}.metadata.json` sidecar files as the
+anchor (skipping any whose audio file is missing) and reads chapter info from
+those sidecars. Playback position is persisted to Postgres so reloading or
+returning later resumes where you left off. Only one tab/device can be in
+active player mode at a time — opening a new player displaces the previous
+one.
 
 ## Configuration
 
