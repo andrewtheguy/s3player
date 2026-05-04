@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
+import { ChapterSummaries } from '@/components/chapter-summaries'
 import { Slider } from '@/components/ui/slider'
 import type { Chapter, Episode, EpisodeDetail } from '@/lib/api'
 import { playerApi } from '@/lib/api'
@@ -711,6 +712,7 @@ export function PlayerPage() {
         </p>
       </div>
       <EpisodePlayer key={data.id} episode={data} />
+      <ChapterSummaries key={`summaries-${data.id}`} episodeId={data.id} />
     </div>
   )
 }
