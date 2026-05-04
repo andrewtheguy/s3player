@@ -2,6 +2,7 @@ import asyncio
 import io
 from unittest.mock import MagicMock, patch
 
+import pytest
 from botocore.exceptions import ClientError
 
 from app import summaries
@@ -106,13 +107,13 @@ def test_list_chapter_summaries_listing_other_error_raises() -> None:
     client = MagicMock()
     client.get_paginator.return_value = pager
 
-    with patch("app.summaries.get_s3_client", return_value=client):
-        try:
-            asyncio.run(summaries.list_chapter_summaries("shows/r/y.m4a"))
-        except summaries.SummaryUpstreamError as e:
-            assert "AccessDenied" in str(e)
-        else:
-            raise AssertionError("expected SummaryUpstreamError")
+    with (
+        patch("app.summaries.get_s3_client", return_value=client),
+        pytest.raises(summaries.SummaryUpstreamError) as excinfo,
+    ):
+        asyncio.run(summaries.list_chapter_summaries("shows/r/y.m4a"))
+
+    assert "AccessDenied" in str(excinfo.value)
 
 
 def test_list_chapter_summaries_skips_individual_fetch_failure() -> None:
