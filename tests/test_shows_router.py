@@ -150,7 +150,7 @@ def test_list_episodes_returns_rows(client: TestClient, mock_conn: AsyncMock) ->
             "id": 11,
             "aired_on": date(2026, 3, 22),
             "time_slot": "0000_0200",
-            "s3_key": "shows/rthk/radio1/2026/03/22/20260322_0000_0200_我得你都得.m4a",
+            "s3_key": "shows/rthk-radio1/2026/03/22/20260322_0000_0200_我得你都得.m4a",
             "chapters": [
                 {"title": "Intro", "start": 0, "end": 60000},
                 {"title": "Main", "start": 60000, "end": 7200000},
@@ -230,7 +230,7 @@ def test_get_episode_returns_detail(client: TestClient, mock_conn: AsyncMock) ->
             "id": 11,
             "aired_on": date(2026, 3, 22),
             "time_slot": "0000_0200",
-            "s3_key": "shows/rthk/radio1/k.m4a",
+            "s3_key": "shows/rthk-radio1/k.m4a",
             "chapters": [{"title": "Intro", "start": 0, "end": 60000}],
             "show_id": 7,
         },
@@ -276,7 +276,7 @@ def test_audio_404_when_episode_missing(client: TestClient, mock_conn: AsyncMock
 
 
 def test_audio_streams_full_object(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchval.return_value = "shows/rthk/radio1/x.m4a"
+    mock_conn.fetchval.return_value = "shows/rthk-radio1/x.m4a"
     body = io.BytesIO(b"AUDIODATA" * 100)
     s3_mock = MagicMock()
     s3_mock.get_object.return_value = {
@@ -295,7 +295,7 @@ def test_audio_streams_full_object(client: TestClient, mock_conn: AsyncMock) -> 
     assert response.content == b"AUDIODATA" * 100
     s3_mock.get_object.assert_called_once_with(
         Bucket="test-bucket",
-        Key="shows/rthk/radio1/x.m4a",
+        Key="shows/rthk-radio1/x.m4a",
     )
 
 
@@ -370,7 +370,7 @@ def test_audio_other_client_error_502(client: TestClient, mock_conn: AsyncMock) 
 
 
 def test_audio_url_returns_presigned_url(client: TestClient, mock_conn: AsyncMock) -> None:
-    mock_conn.fetchval.return_value = "shows/rthk/radio1/x.m4a"
+    mock_conn.fetchval.return_value = "shows/rthk-radio1/x.m4a"
     s3_mock = MagicMock()
     s3_mock.generate_presigned_url.return_value = "https://s3.example/x.m4a?sig=abc"
 
@@ -384,7 +384,7 @@ def test_audio_url_returns_presigned_url(client: TestClient, mock_conn: AsyncMoc
     }
     s3_mock.generate_presigned_url.assert_called_once_with(
         "get_object",
-        Params={"Bucket": "test-bucket", "Key": "shows/rthk/radio1/x.m4a"},
+        Params={"Bucket": "test-bucket", "Key": "shows/rthk-radio1/x.m4a"},
         ExpiresIn=3600,
     )
 

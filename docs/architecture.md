@@ -4,7 +4,7 @@ s3player is a FastAPI app with a JSON API, a built React SPA in production, and 
 
 ## Stack
 
-- **Backend**: Python 3.12, FastAPI, asyncpg, boto3, ffprobe (subprocess) for chapter extraction.
+- **Backend**: Python 3.12, FastAPI, asyncpg, boto3. Chapter info comes from per-episode `.metadata.json` sidecar objects in S3 (no ffprobe / ffmpeg).
 - **Frontend**: React + TypeScript, Vite, TailwindCSS, react-router, Biome.
 - **Storage**: S3-compatible object store for audio; Postgres for everything else.
 - **Tooling**: `uv` for Python, `bun` for JS, `ruff` + `basedpyright` for backend checks, `biome` + `tsc -b` for frontend checks.
@@ -115,11 +115,12 @@ Schema is created by `bootstrap_schema` using `IF NOT EXISTS` statements:
 `app.indexer.run` is invoked by the CLI:
 
 1. Open the pool, bootstrap schema.
-2. For each configured station prefix, paginate `ListObjectsV2` and collect every `.m4a` key.
-3. `parse_episode_key` (`app/parse_key.py`) extracts `aired_on`, `time_slot`, and the show name from each key.
-4. Upsert `shows`, then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes`. Newly-inserted rows return their id.
-5. For each new episode: presign the S3 URL, shell out to `ffprobe -show_chapters` with a bounded timeout, normalize via `app.chapters.normalize_chapters`, and update `episodes.chapters`.
-6. Soft-delete any `episodes.s3_key` not seen in this run; restore any previously-deleted key that reappeared.
+2. For each configured station prefix, paginate `ListObjectsV2` and split the listing into the set of `.m4a` audio keys and the list of `.m4a.metadata.json` sidecar keys.
+3. For each sidecar, derive `audio_key` by stripping `.metadata.json`. Skip if the audio key is not in the listed set (sidecar without audio file).
+4. `parse_episode_key` (`app/parse_key.py`) extracts `aired_on`, `time_slot`, and the show name from `audio_key`.
+5. Upsert `shows`, then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes`. Newly-inserted rows return their id.
+6. For each new episode: `GetObject` the sidecar, parse JSON, run `app.chapters.normalize_chapters` over its `chapters` array (using `start_ms_in_show` / `end_ms_in_show` / `title`), and update `episodes.chapters`.
+7. Soft-delete any `episodes.s3_key` not seen in this run; restore any previously-deleted key that reappeared.
 
 The indexer is safe to re-run: every write is an upsert or a conditional update.
 
@@ -165,8 +166,10 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 s3player index
   → asyncpg pool + bootstrap_schema
   → S3 ListObjectsV2 (paginated) per station prefix
-  → parse_episode_key  ──→ shows upsert  ──→ episodes insert
-  → for each new episode: presign URL → ffprobe → chapters JSONB
+  → split listing into .m4a set and .m4a.metadata.json sidecars
+  → for each sidecar with a matching audio file:
+       parse_episode_key  ──→ shows upsert  ──→ episodes insert
+       → GetObject sidecar → normalize_chapters → chapters JSONB
   → soft-delete missing keys; restore reappeared keys
 ```
 
@@ -213,6 +216,6 @@ The Dockerfile is a three-stage build:
 
 1. **frontend-builder**: installs frontend dependencies and builds `frontend/dist/`.
 2. **backend-builder**: installs Python dependencies into the runtime environment.
-3. **runtime**: copies installed Python packages, console scripts, the `app/` source, built frontend assets, and static `ffmpeg`/`ffprobe` binaries. The container entrypoint runs `uvicorn app.server:app`.
+3. **runtime**: copies installed Python packages, console scripts, the `app/` source, and built frontend assets. The container entrypoint runs `uvicorn app.server:app`.
 
 CI (`.github/workflows/`) runs the same backend and frontend checks listed in `CLAUDE.md`, plus pytest and a CLI entry-point smoke test. The container workflow builds and publishes multi-arch images for releases or manual dispatches. There is no automated indexer run; `s3player index` is invoked manually or by an out-of-band scheduler when new files land in S3.
