@@ -120,6 +120,16 @@ export interface EpisodeDetail extends Episode {
   show: ShowDetail
 }
 
+export interface ChapterSummary {
+  // Parsed from the source filename `chapter_NN.md` — 1-based under the
+  // canonical naming (the first chapter is `chapter_01.md`).
+  index: number
+  content: string
+}
+export interface ChapterSummariesResponse {
+  summaries: ChapterSummary[]
+}
+
 export interface ProgressResponse {
   position_ms: number
   duration_ms: number | null

@@ -65,6 +65,7 @@ The production Python server enforces authentication in `site_password_gate` bef
 | `GET /api/shows/episodes/{episode_id}` | Yes | No | Reads episode detail. |
 | `GET /api/shows/episodes/{episode_id}/audio` | Yes | No | Backend audio stream proxy; supports S3 range forwarding. |
 | `GET /api/shows/episodes/{episode_id}/audio_url` | Yes | No | Returns a presigned S3 URL for direct media fetches. |
+| `GET /api/shows/episodes/{episode_id}/chapter_summaries` | Yes | No | Lists per-chapter markdown summaries for an episode. |
 | `POST /api/player/session/claim` | Yes | No | Creates a new active player session and displaces any previous session token. |
 | `POST /api/player/session/validate` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
 | `POST /api/player/episodes/{id}/progress` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. Body `completed: true` marks the episode fully played in the same write. |
@@ -84,7 +85,7 @@ Routers live under `app/routers/` and are split by visibility: one internal rout
 | --- | --- | --- | --- |
 | `internal.py` | (none) | Internal | HTML `/login` form and auth cookie creation. Router-level `include_in_schema=False`. |
 | `auth.py` | `/api/auth` | Public | `POST /api/auth/login` — site-password-to-bearer-token exchange for non-browser clients. |
-| `shows.py` | `/api/shows` | Public | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, and presigned audio URL endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`. |
+| `shows.py` | `/api/shows` | Public | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, presigned audio URL, and per-chapter summary endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`; summary listing/fetching lives in `app.summaries`. |
 | `player.py` | `/api/player` | Public | HTTP adapter for session claim/validate, progress save (which also carries the `completed` flag), recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
 
 ### Audio stream proxy
@@ -97,6 +98,7 @@ Supporting modules outside `app/routers/` hold reusable application logic:
 
 - `app.catalog` — station/show/month/episode read queries and row mapping.
 - `app.audio` — presigned audio URLs, S3 range forwarding, stream-body cleanup, and S3 audio error normalization.
+- `app.summaries` — per-chapter markdown summary prefix derivation, S3 listing, and concurrent body fetches.
 - `app.player_state` — single-session claim/displacement, progress writes, completion, and recent/in-progress queries.
 
 ### Database

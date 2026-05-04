@@ -411,3 +411,109 @@ def test_audio_url_presign_error_502(client: TestClient, mock_conn: AsyncMock) -
 
     assert response.status_code == 502
     assert "AccessDenied" in response.json()["detail"]
+
+
+def _summary_paginator(s3_mock: MagicMock, keys: list[str]) -> None:
+    pager = MagicMock()
+    pager.paginate.return_value = [{"Contents": [{"Key": k} for k in keys]}]
+    s3_mock.get_paginator.return_value = pager
+
+
+def test_chapter_summaries_returns_sorted_summaries(
+    client: TestClient, mock_conn: AsyncMock
+) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk-radio1/2026/03/22/abc.m4a"
+    expected_prefix = "summaries/rthk-radio1/2026/03/22/abc_summary/"
+    keys = [
+        f"{expected_prefix}chapter_02.md",
+        f"{expected_prefix}chapter_10.md",
+        f"{expected_prefix}chapter_01.md",
+    ]
+    bodies = {
+        f"{expected_prefix}chapter_01.md": b"first",
+        f"{expected_prefix}chapter_02.md": b"second",
+        f"{expected_prefix}chapter_10.md": b"tenth",
+    }
+    s3_mock = MagicMock()
+    _summary_paginator(s3_mock, keys)
+    s3_mock.get_object.side_effect = lambda *, Bucket, Key: {  # noqa: N803
+        "Body": io.BytesIO(bodies[Key])
+    }
+
+    with patch("app.summaries.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/chapter_summaries")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "summaries": [
+            {"index": 1, "content": "first"},
+            {"index": 2, "content": "second"},
+            {"index": 10, "content": "tenth"},
+        ]
+    }
+    pager_paginate = s3_mock.get_paginator.return_value.paginate
+    _, kwargs = pager_paginate.call_args
+    assert kwargs["Bucket"] == "test-bucket"
+    assert kwargs["Prefix"] == expected_prefix
+
+
+def test_chapter_summaries_empty_when_no_files(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk-radio1/x.m4a"
+    s3_mock = MagicMock()
+    _summary_paginator(s3_mock, [])
+
+    with patch("app.summaries.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/chapter_summaries")
+
+    assert response.status_code == 200
+    assert response.json() == {"summaries": []}
+
+
+def test_chapter_summaries_ignores_non_chapter_files(
+    client: TestClient, mock_conn: AsyncMock
+) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk-radio1/x.m4a"
+    prefix = "summaries/rthk-radio1/x_summary/"
+    keys = [
+        f"{prefix}index.md",
+        f"{prefix}chapter_aa.md",
+        f"{prefix}README",
+        f"{prefix}chapter_03.md",
+    ]
+    s3_mock = MagicMock()
+    _summary_paginator(s3_mock, keys)
+    s3_mock.get_object.return_value = {"Body": io.BytesIO(b"three")}
+
+    with patch("app.summaries.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/chapter_summaries")
+
+    assert response.status_code == 200
+    assert response.json() == {"summaries": [{"index": 3, "content": "three"}]}
+
+
+def test_chapter_summaries_404_when_episode_missing(
+    client: TestClient, mock_conn: AsyncMock
+) -> None:
+    mock_conn.fetchval.return_value = None
+
+    response = client.get("/api/shows/episodes/999/chapter_summaries")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "episode not found"
+
+
+def test_chapter_summaries_listing_error_502(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk-radio1/x.m4a"
+    pager = MagicMock()
+    pager.paginate.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "boom"}},
+        "ListObjectsV2",
+    )
+    s3_mock = MagicMock()
+    s3_mock.get_paginator.return_value = pager
+
+    with patch("app.summaries.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/11/chapter_summaries")
+
+    assert response.status_code == 502
+    assert "AccessDenied" in response.json()["detail"]

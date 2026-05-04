@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import audio, catalog
+from app import audio, catalog, summaries
 from app.db import get_conn
 
 router = APIRouter(prefix="/api/shows", tags=["shows"])
@@ -80,6 +80,15 @@ class EpisodeDetail(BaseModel):
 class AudioUrlResponse(BaseModel):
     url: str
     expires_in: int
+
+
+class ChapterSummary(BaseModel):
+    index: int
+    content: str
+
+
+class ChapterSummariesResponse(BaseModel):
+    summaries: list[ChapterSummary]
 
 
 def _db_error(e: catalog.CatalogDatabaseError) -> HTTPException:
@@ -289,4 +298,34 @@ async def stream_episode_audio(
         status_code=stream.status_code,
         headers=stream.headers,
         media_type=stream.media_type,
+    )
+
+
+@router.get(
+    "/episodes/{episode_id}/chapter_summaries",
+    summary="List per-chapter markdown summaries for an episode",
+)
+async def list_episode_chapter_summaries(
+    episode_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> ChapterSummariesResponse:
+    """Return every per-chapter markdown summary stored for the episode.
+
+    Summaries live in S3 under a prefix derived from the episode's audio key:
+    `shows/<...>/<basename>.m4a` is mapped to
+    `summaries/<...>/<basename>_summary/chapter_NN.md`. Each entry's `index`
+    is the integer parsed from the file name (the `NN` in `chapter_NN.md`),
+    so indices are **1-based** under the canonical naming where the first
+    chapter is `chapter_01.md`. The list is sorted ascending by index.
+    Returns an empty list when no summaries exist for the episode. Returns
+    404 if the episode does not exist and 502 if listing the summaries
+    upstream fails.
+    """
+    s3_key = await _get_episode_s3_key(conn, episode_id)
+    try:
+        items = await summaries.list_chapter_summaries(s3_key)
+    except summaries.SummaryUpstreamError as e:
+        raise HTTPException(status_code=502, detail=e.detail) from e
+    return ChapterSummariesResponse(
+        summaries=[ChapterSummary(index=item.index, content=item.content) for item in items]
     )
