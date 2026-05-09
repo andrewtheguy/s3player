@@ -7,7 +7,15 @@ interface State<T> {
   loading: boolean
 }
 
-export function useFetch<T>(path: string | null): State<T> {
+interface Options {
+  refreshInterval?: number
+}
+
+export function useFetch<T>(
+  path: string | null,
+  options: Options = {},
+): State<T> {
+  const { refreshInterval } = options
   const [state, setState] = useState<State<T>>({
     data: null,
     error: null,
@@ -36,6 +44,27 @@ export function useFetch<T>(path: string | null): State<T> {
       cancelled = true
     }
   }, [path])
+
+  useEffect(() => {
+    if (path === null) return
+    if (!refreshInterval || refreshInterval <= 0) return
+    let cancelled = false
+    const id = setInterval(() => {
+      apiFetch<T>(path)
+        .then((data) => {
+          if (!cancelled) setState({ data, error: null, loading: false })
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return
+          const msg = e instanceof Error ? e.message : String(e)
+          setState((prev) => ({ ...prev, error: msg, loading: false }))
+        })
+    }, refreshInterval)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [path, refreshInterval])
 
   return state
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { EpisodeCard } from '@/components/episode-card'
@@ -42,31 +42,51 @@ function HomeRow({
   )
 }
 
+const refreshOptions = { refreshInterval: 15000 }
+
 export function StationsPage() {
   const { data, error, loading } = useFetch<StationsResponse>(
     '/api/shows/stations',
+    refreshOptions,
   )
   const { data: favorites } = useFetch<FavoritesResponse>(
     '/api/shows/favorites',
+    refreshOptions,
   )
   const { data: inProgress } = useFetch<RecentResponse>(
     '/api/player/in-progress',
+    refreshOptions,
   )
   const { data: recent } = useFetch<RecentResponse>(
     '/api/player/recent-completed',
+    refreshOptions,
   )
 
   const [inProgressEpisodes, setInProgressEpisodes] = useState<
     RecentResponse['episodes']
   >([])
+  // Tombstones for episodes the user has removed locally. We hide them from
+  // any refresh response that still contains them (DELETE may not have landed
+  // server-side yet, or a refresh started before the click is in flight).
+  // Tombstones are dropped once the server stops returning the id.
+  const pendingRemovalsRef = useRef<Set<number>>(new Set())
   useEffect(() => {
-    setInProgressEpisodes(inProgress?.episodes ?? [])
+    if (!inProgress) return
+    const serverIds = new Set(inProgress.episodes.map((e) => e.id))
+    for (const id of pendingRemovalsRef.current) {
+      if (!serverIds.has(id)) pendingRemovalsRef.current.delete(id)
+    }
+    setInProgressEpisodes(
+      inProgress.episodes.filter((e) => !pendingRemovalsRef.current.has(e.id)),
+    )
   }, [inProgress])
 
   const handleRemoveInProgress = (episode: RecentEpisode) => {
+    pendingRemovalsRef.current.add(episode.id)
     setInProgressEpisodes((prev) => prev.filter((e) => e.id !== episode.id))
     playerApi.deleteProgress(episode.id).catch((err: unknown) => {
       console.error('Failed to remove from Continue listening', err)
+      pendingRemovalsRef.current.delete(episode.id)
       setInProgressEpisodes((prev) =>
         [...prev, episode].sort(
           (a, b) => Date.parse(b.last_played_at) - Date.parse(a.last_played_at),
