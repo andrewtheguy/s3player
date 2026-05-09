@@ -88,6 +88,7 @@ export interface FavoriteShow {
   name: string
   episode_count: number
   favorited_at: string
+  latest_aired_on: string | null
 }
 export interface FavoritesResponse {
   favorites: FavoriteShow[]

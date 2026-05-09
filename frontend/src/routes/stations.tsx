@@ -107,6 +107,11 @@ export function StationsPage() {
                   {f.episode_count}{' '}
                   {f.episode_count === 1 ? 'episode' : 'episodes'}
                 </div>
+                {f.latest_aired_on ? (
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Latest: {f.latest_aired_on}
+                  </div>
+                ) : null}
               </Link>
             ))}
           </div>

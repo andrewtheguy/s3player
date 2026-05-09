@@ -539,6 +539,7 @@ def test_list_favorites_returns_rows(client: TestClient, mock_conn: AsyncMock) -
             "name": "我得你都得",
             "episode_count": 21,
             "favorited_at": datetime(2026, 5, 9, 12, 0, tzinfo=UTC),
+            "latest_aired_on": date(2026, 5, 8),
         },
         {
             "id": 4,
@@ -546,6 +547,7 @@ def test_list_favorites_returns_rows(client: TestClient, mock_conn: AsyncMock) -
             "name": "音樂說",
             "episode_count": 3,
             "favorited_at": datetime(2026, 5, 1, 8, 0, tzinfo=UTC),
+            "latest_aired_on": None,
         },
     ]
 
@@ -557,6 +559,8 @@ def test_list_favorites_returns_rows(client: TestClient, mock_conn: AsyncMock) -
     assert body["favorites"][0]["station"] == "rthk-radio1"
     assert body["favorites"][0]["episode_count"] == 21
     assert body["favorites"][0]["favorited_at"].startswith("2026-05-09")
+    assert body["favorites"][0]["latest_aired_on"] == "2026-05-08"
+    assert body["favorites"][1]["latest_aired_on"] is None
 
 
 def test_list_favorites_empty(client: TestClient, mock_conn: AsyncMock) -> None:

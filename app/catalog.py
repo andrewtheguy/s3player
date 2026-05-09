@@ -46,6 +46,7 @@ class FavoriteShow:
     name: str
     episode_count: int
     favorited_at: datetime
+    latest_aired_on: date | None
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,7 @@ async def list_favorites(conn: PoolConnectionProxy) -> list[FavoriteShow]:
         rows = await conn.fetch(
             "SELECT s.id, s.station, s.name, "
             "COUNT(e.id) FILTER (WHERE e.deleted = FALSE)::int AS episode_count, "
+            "MAX(e.aired_on) FILTER (WHERE e.deleted = FALSE) AS latest_aired_on, "
             "f.favorited_at "
             "FROM favorite_shows f "
             "JOIN shows s ON s.id = f.show_id "
@@ -288,6 +290,7 @@ async def list_favorites(conn: PoolConnectionProxy) -> list[FavoriteShow]:
             name=r["name"],
             episode_count=r["episode_count"],
             favorited_at=r["favorited_at"],
+            latest_aired_on=r["latest_aired_on"],
         )
         for r in rows
     ]

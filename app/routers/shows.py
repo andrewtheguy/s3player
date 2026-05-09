@@ -45,6 +45,7 @@ class FavoriteShow(BaseModel):
     name: str
     episode_count: int
     favorited_at: datetime
+    latest_aired_on: date | None
 
 
 class FavoritesResponse(BaseModel):
@@ -226,6 +227,7 @@ async def list_favorites(
                 name=f.name,
                 episode_count=f.episode_count,
                 favorited_at=f.favorited_at,
+                latest_aired_on=f.latest_aired_on,
             )
             for f in favorites
         ]
