@@ -39,7 +39,7 @@ export function MonthsPage() {
   const yearNum = Number(year)
   const months = (data?.months ?? [])
     .filter((m) => m.year === yearNum)
-    .sort((a, b) => b.month - a.month)
+    .sort((a, b) => a.month - b.month)
 
   const crumbs = show
     ? [
