@@ -111,7 +111,10 @@ export function FavoritesPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" asChild>
-                        <Link to={`/player/${ep.id}`}>
+                        <Link
+                          to={`/player/${ep.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <Play aria-hidden />
                           Play
                         </Link>
