@@ -1,6 +1,6 @@
 # AI Agent Instructions
 
-No backward compatibility or migration path for simplicity.
+No backward compatibility or migration path for simplicity because it is a private and internal project.
 
 use `uv` to run all python commands
 
