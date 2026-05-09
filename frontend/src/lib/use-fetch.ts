@@ -31,8 +31,25 @@ export function useFetch<T>(
       }
     }
     setState({ data: null, error: null, loading: true })
+    apiFetch<T>(path)
+      .then((data) => {
+        if (!cancelled) setState({ data, error: null, loading: false })
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        const msg = e instanceof Error ? e.message : String(e)
+        setState({ data: null, error: msg, loading: false })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [path])
 
-    const load = (isRefresh: boolean) => {
+  useEffect(() => {
+    if (path === null) return
+    if (!refreshInterval || refreshInterval <= 0) return
+    let cancelled = false
+    const id = setInterval(() => {
       apiFetch<T>(path)
         .then((data) => {
           if (!cancelled) setState({ data, error: null, loading: false })
@@ -40,26 +57,12 @@ export function useFetch<T>(
         .catch((e: unknown) => {
           if (cancelled) return
           const msg = e instanceof Error ? e.message : String(e)
-          if (isRefresh) {
-            setState((prev) => ({ ...prev, error: msg, loading: false }))
-          } else {
-            setState({ data: null, error: msg, loading: false })
-          }
+          setState((prev) => ({ ...prev, error: msg, loading: false }))
         })
-    }
-
-    load(false)
-
-    if (refreshInterval && refreshInterval > 0) {
-      const id = setInterval(() => load(true), refreshInterval)
-      return () => {
-        cancelled = true
-        clearInterval(id)
-      }
-    }
-
+    }, refreshInterval)
     return () => {
       cancelled = true
+      clearInterval(id)
     }
   }, [path, refreshInterval])
 

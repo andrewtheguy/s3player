@@ -42,8 +42,9 @@ function HomeRow({
   )
 }
 
+const refreshOptions = { refreshInterval: 15000 }
+
 export function StationsPage() {
-  const refreshOptions = { refreshInterval: 15000 }
   const { data, error, loading } = useFetch<StationsResponse>(
     '/api/shows/stations',
     refreshOptions,
