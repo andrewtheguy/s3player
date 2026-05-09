@@ -2,16 +2,18 @@ export function formatRelative(iso: string): string {
   const ts = Date.parse(iso)
   if (Number.isNaN(ts)) return ''
   const diffMs = Date.now() - ts
-  const sec = Math.max(0, Math.floor(diffMs / 1000))
-  if (sec < 60) return `${sec}s ago`
+  const future = diffMs < 0
+  const fmt = (value: string) => (future ? `in ${value}` : `${value} ago`)
+  const sec = Math.floor(Math.abs(diffMs) / 1000)
+  if (sec < 60) return fmt(`${sec}s`)
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
+  if (min < 60) return fmt(`${min}m`)
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
+  if (hr < 24) return fmt(`${hr}h`)
   const day = Math.floor(hr / 24)
-  if (day < 7) return `${day}d ago`
+  if (day < 7) return fmt(`${day}d`)
   const week = Math.floor(day / 7)
-  if (week < 5) return `${week}w ago`
+  if (week < 5) return fmt(`${week}w`)
   return new Date(ts).toLocaleDateString()
 }
 
