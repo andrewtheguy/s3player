@@ -29,7 +29,7 @@ jobs:
           elif [ -n "${{ inputs.tag }}" ]; then
             echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
           else
-            echo "tag=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+            echo "tag=$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
           fi
 
   build:
