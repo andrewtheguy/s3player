@@ -10,35 +10,54 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { EpisodesResponse } from '@/lib/api'
-import { validateTwoDigitPathSegment } from '@/lib/episode-path'
-import { formatTimeSlot } from '@/lib/format'
+import type { RecentShowEpisodesResponse, ShowEpisode } from '@/lib/api'
+import { formatPosition, formatRelative, formatTimeSlot } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
-export function EpisodesPage() {
-  const navigate = useNavigate()
-  const { show_id, year, month } = useParams<{
-    show_id: string
-    year: string
-    month: string
-  }>()
-  const monthStr = validateTwoDigitPathSegment(month, 1, 12)
-  const url =
-    monthStr === null
-      ? null
-      : `/api/shows/${show_id}/months/${year}/${monthStr}/episodes`
-  const { data, error, loading } = useFetch<EpisodesResponse>(url)
+function StatusCell({ episode }: { episode: ShowEpisode }) {
+  if (
+    episode.duration_ms != null &&
+    !episode.completed &&
+    episode.position_ms > 0
+  ) {
+    const pct = Math.min(
+      100,
+      Math.max(0, (episode.position_ms / episode.duration_ms) * 100),
+    )
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
+          <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="text-xs text-muted-foreground tabular-nums">
+          {formatPosition(episode.position_ms)} /{' '}
+          {formatPosition(episode.duration_ms)}
+        </div>
+      </div>
+    )
+  }
+  if (episode.completed) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Completed
+        {episode.last_played_at
+          ? ` · ${formatRelative(episode.last_played_at)}`
+          : ''}
+      </span>
+    )
+  }
+  return null
+}
 
-  useDocumentTitle(
-    data?.show && monthStr
-      ? `${data.show.name} — ${year}-${monthStr}`
-      : 'Episodes',
+export function FavoritesPage() {
+  const navigate = useNavigate()
+  const { show_id } = useParams<{ show_id: string }>()
+  const { data, error, loading } = useFetch<RecentShowEpisodesResponse>(
+    `/api/shows/${show_id}/recent-episodes?limit=20`,
   )
 
-  if (monthStr === null) {
-    return <p className="text-muted-foreground">Invalid month.</p>
-  }
+  useDocumentTitle(data?.show ? `${data.show.name} — Recent` : 'Favorite show')
 
   if (loading) return <p className="text-muted-foreground">Loading episodes…</p>
   if (error) return <p className="text-destructive">Error: {error}</p>
@@ -52,9 +71,7 @@ export function EpisodesPage() {
           label: show.station,
           href: `/stations/${encodeURIComponent(show.station)}`,
         },
-        { label: show.name, href: `/shows/${show.id}` },
-        { label: year ?? '', href: `/shows/${show.id}/${year}` },
-        { label: monthStr },
+        { label: `${show.name} — Recent` },
       ]
     : []
 
@@ -62,11 +79,11 @@ export function EpisodesPage() {
     <div className="space-y-6">
       <BreadcrumbTrail crumbs={crumbs} />
       {episodes.length === 0 ? (
-        <p className="text-muted-foreground">No episodes in this month.</p>
+        <p className="text-muted-foreground">No episodes for this show yet.</p>
       ) : (
         <div>
           <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-            {show?.name} — {year}-{monthStr}
+            {show?.name} — Recent
           </h1>
           <div className="rounded-lg border bg-card">
             <Table>
@@ -74,9 +91,7 @@ export function EpisodesPage() {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Time</TableHead>
-                  <TableHead className="hidden sm:table-cell">
-                    Chapters
-                  </TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -91,8 +106,8 @@ export function EpisodesPage() {
                     <TableCell className="text-muted-foreground">
                       {formatTimeSlot(ep.time_slot)}
                     </TableCell>
-                    <TableCell className="hidden text-muted-foreground sm:table-cell">
-                      {ep.chapters?.length ?? 0}
+                    <TableCell>
+                      <StatusCell episode={ep} />
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" asChild>

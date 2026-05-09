@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from asyncpg.pool import PoolConnectionProxy
@@ -28,6 +28,7 @@ class Show:
     id: int
     name: str
     episode_count: int
+    is_favorite: bool
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,29 @@ class ShowDetail:
     station: str
     name: str
     episode_count: int
+
+
+@dataclass(frozen=True)
+class FavoriteShow:
+    id: int
+    station: str
+    name: str
+    episode_count: int
+    favorited_at: datetime
+
+
+@dataclass(frozen=True)
+class ShowEpisode:
+    id: int
+    aired_on: date
+    time_slot: str | None
+    show_id: int
+    show_name: str
+    station: str
+    position_ms: int
+    duration_ms: int | None
+    completed: bool
+    last_played_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -82,16 +106,26 @@ async def list_stations(conn: PoolConnectionProxy) -> list[Station]:
 async def list_shows(conn: PoolConnectionProxy, station: str) -> list[Show]:
     try:
         rows = await conn.fetch(
-            "SELECT s.id, s.name, COUNT(e.id)::int AS episode_count "
+            "SELECT s.id, s.name, COUNT(e.id)::int AS episode_count, "
+            "(f.show_id IS NOT NULL) AS is_favorite "
             "FROM shows s LEFT JOIN episodes e "
             "ON e.show_id = s.id AND e.deleted = FALSE "
+            "LEFT JOIN favorite_shows f ON f.show_id = s.id "
             "WHERE s.station = $1 "
-            "GROUP BY s.id, s.name ORDER BY s.name",
+            "GROUP BY s.id, s.name, f.show_id ORDER BY s.name",
             station,
         )
     except Exception as e:
         raise _db_error(e) from e
-    return [Show(id=r["id"], name=r["name"], episode_count=r["episode_count"]) for r in rows]
+    return [
+        Show(
+            id=r["id"],
+            name=r["name"],
+            episode_count=r["episode_count"],
+            is_favorite=r["is_favorite"],
+        )
+        for r in rows
+    ]
 
 
 async def get_show_detail(conn: PoolConnectionProxy, show_id: int) -> ShowDetail:
@@ -208,3 +242,97 @@ async def get_episode_s3_key(conn: PoolConnectionProxy, episode_id: int) -> str:
     if s3_key is None:
         raise CatalogNotFound("episode not found")
     return s3_key
+
+
+async def add_favorite(conn: PoolConnectionProxy, show_id: int) -> None:
+    try:
+        async with conn.transaction():
+            exists = await conn.fetchval("SELECT 1 FROM shows WHERE id = $1", show_id)
+            if exists is None:
+                raise CatalogNotFound("show not found")
+            await conn.execute(
+                "INSERT INTO favorite_shows (show_id) VALUES ($1) ON CONFLICT (show_id) DO NOTHING",
+                show_id,
+            )
+    except CatalogNotFound:
+        raise
+    except Exception as e:
+        raise _db_error(e) from e
+
+
+async def remove_favorite(conn: PoolConnectionProxy, show_id: int) -> None:
+    try:
+        await conn.execute("DELETE FROM favorite_shows WHERE show_id = $1", show_id)
+    except Exception as e:
+        raise _db_error(e) from e
+
+
+async def list_favorites(conn: PoolConnectionProxy) -> list[FavoriteShow]:
+    try:
+        rows = await conn.fetch(
+            "SELECT s.id, s.station, s.name, "
+            "COUNT(e.id) FILTER (WHERE e.deleted = FALSE)::int AS episode_count, "
+            "f.favorited_at "
+            "FROM favorite_shows f "
+            "JOIN shows s ON s.id = f.show_id "
+            "LEFT JOIN episodes e ON e.show_id = s.id "
+            "GROUP BY s.id, s.station, s.name, f.favorited_at "
+            "ORDER BY f.favorited_at DESC"
+        )
+    except Exception as e:
+        raise _db_error(e) from e
+    return [
+        FavoriteShow(
+            id=r["id"],
+            station=r["station"],
+            name=r["name"],
+            episode_count=r["episode_count"],
+            favorited_at=r["favorited_at"],
+        )
+        for r in rows
+    ]
+
+
+async def list_recent_show_episodes(
+    conn: PoolConnectionProxy,
+    show_id: int,
+    limit: int,
+) -> tuple[ShowDetail, list[ShowEpisode]]:
+    show = await get_show_detail(conn, show_id)
+    try:
+        rows = await conn.fetch(
+            "SELECT e.id, e.aired_on, e.time_slot, "
+            "s.id AS show_id, s.name AS show_name, s.station, "
+            "COALESCE(ps.position_ms, 0) AS position_ms, "
+            "ps.duration_ms, "
+            "COALESCE(ps.completed, FALSE) AS completed, "
+            "ps.last_played_at "
+            "FROM episodes e "
+            "JOIN shows s ON s.id = e.show_id "
+            "LEFT JOIN episode_play_state ps ON ps.episode_id = e.id "
+            "WHERE e.show_id = $1 AND e.deleted = FALSE "
+            "ORDER BY e.aired_on DESC, e.time_slot DESC NULLS LAST "
+            "LIMIT $2",
+            show_id,
+            limit,
+        )
+    except Exception as e:
+        raise _db_error(e) from e
+    return (
+        show,
+        [
+            ShowEpisode(
+                id=r["id"],
+                aired_on=r["aired_on"],
+                time_slot=r["time_slot"],
+                show_id=r["show_id"],
+                show_name=r["show_name"],
+                station=r["station"],
+                position_ms=r["position_ms"],
+                duration_ms=r["duration_ms"],
+                completed=r["completed"],
+                last_played_at=r["last_played_at"],
+            )
+            for r in rows
+        ],
+    )

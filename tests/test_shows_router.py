@@ -1,9 +1,21 @@
 import io
-from datetime import date
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
+
+
+class _AsyncContext:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
+
+
+def _install_transaction_mock(conn: AsyncMock) -> None:
+    conn.transaction = MagicMock(return_value=_AsyncContext())
 
 
 def test_list_stations_aggregates(client: TestClient, mock_conn: AsyncMock) -> None:
@@ -43,8 +55,8 @@ def test_list_stations_db_error_500(client: TestClient, mock_conn: AsyncMock) ->
 
 def test_list_shows_for_station(client: TestClient, mock_conn: AsyncMock) -> None:
     mock_conn.fetch.return_value = [
-        {"id": 1, "name": "我得你都得", "episode_count": 5},
-        {"id": 2, "name": "音樂說", "episode_count": 0},
+        {"id": 1, "name": "我得你都得", "episode_count": 5, "is_favorite": True},
+        {"id": 2, "name": "音樂說", "episode_count": 0, "is_favorite": False},
     ]
 
     response = client.get("/api/shows/stations/rthk-radio1/shows")
@@ -52,8 +64,8 @@ def test_list_shows_for_station(client: TestClient, mock_conn: AsyncMock) -> Non
     assert response.status_code == 200
     assert response.json() == {
         "shows": [
-            {"id": 1, "name": "我得你都得", "episode_count": 5},
-            {"id": 2, "name": "音樂說", "episode_count": 0},
+            {"id": 1, "name": "我得你都得", "episode_count": 5, "is_favorite": True},
+            {"id": 2, "name": "音樂說", "episode_count": 0, "is_favorite": False},
         ]
     }
     args, _ = mock_conn.fetch.call_args
@@ -517,3 +529,192 @@ def test_chapter_summaries_listing_error_502(client: TestClient, mock_conn: Asyn
 
     assert response.status_code == 502
     assert "AccessDenied" in response.json()["detail"]
+
+
+def test_list_favorites_returns_rows(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetch.return_value = [
+        {
+            "id": 7,
+            "station": "rthk-radio1",
+            "name": "我得你都得",
+            "episode_count": 21,
+            "favorited_at": datetime(2026, 5, 9, 12, 0, tzinfo=UTC),
+        },
+        {
+            "id": 4,
+            "station": "rthk-radio2",
+            "name": "音樂說",
+            "episode_count": 3,
+            "favorited_at": datetime(2026, 5, 1, 8, 0, tzinfo=UTC),
+        },
+    ]
+
+    response = client.get("/api/shows/favorites")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [f["id"] for f in body["favorites"]] == [7, 4]
+    assert body["favorites"][0]["station"] == "rthk-radio1"
+    assert body["favorites"][0]["episode_count"] == 21
+    assert body["favorites"][0]["favorited_at"].startswith("2026-05-09")
+
+
+def test_list_favorites_empty(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetch.return_value = []
+
+    response = client.get("/api/shows/favorites")
+
+    assert response.status_code == 200
+    assert response.json() == {"favorites": []}
+
+
+def test_add_favorite_inserts_when_show_exists(client: TestClient, mock_conn: AsyncMock) -> None:
+    _install_transaction_mock(mock_conn)
+    mock_conn.fetchval.return_value = 1
+
+    response = client.post("/api/shows/7/favorite")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    mock_conn.execute.assert_awaited_once()
+    execute_args, _ = mock_conn.execute.await_args
+    assert "INSERT INTO favorite_shows" in execute_args[0]
+    assert execute_args[1] == 7
+
+
+def test_add_favorite_404_when_show_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    _install_transaction_mock(mock_conn)
+    mock_conn.fetchval.return_value = None
+
+    response = client.post("/api/shows/999/favorite")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "show not found"
+    mock_conn.execute.assert_not_awaited()
+
+
+def test_add_favorite_idempotent_second_call(client: TestClient, mock_conn: AsyncMock) -> None:
+    _install_transaction_mock(mock_conn)
+    mock_conn.fetchval.return_value = 1
+
+    first = client.post("/api/shows/7/favorite")
+    second = client.post("/api/shows/7/favorite")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert mock_conn.execute.await_count == 2
+
+
+def test_remove_favorite_deletes(client: TestClient, mock_conn: AsyncMock) -> None:
+    response = client.delete("/api/shows/7/favorite")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    execute_args, _ = mock_conn.execute.await_args
+    assert "DELETE FROM favorite_shows" in execute_args[0]
+    assert execute_args[1] == 7
+
+
+def test_remove_favorite_idempotent_when_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    response = client.delete("/api/shows/999/favorite")
+
+    assert response.status_code == 200
+
+
+def test_recent_episodes_returns_rows_with_progress(
+    client: TestClient, mock_conn: AsyncMock
+) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "我得你都得",
+        "episode_count": 30,
+    }
+    mock_conn.fetch.return_value = [
+        {
+            "id": 12,
+            "aired_on": date(2026, 5, 8),
+            "time_slot": "0000_0200",
+            "show_id": 7,
+            "show_name": "我得你都得",
+            "station": "rthk-radio1",
+            "position_ms": 600_000,
+            "duration_ms": 7_200_000,
+            "completed": False,
+            "last_played_at": datetime(2026, 5, 8, 9, 0, tzinfo=UTC),
+        },
+        {
+            "id": 11,
+            "aired_on": date(2026, 5, 7),
+            "time_slot": "0000_0200",
+            "show_id": 7,
+            "show_name": "我得你都得",
+            "station": "rthk-radio1",
+            "position_ms": 0,
+            "duration_ms": None,
+            "completed": False,
+            "last_played_at": None,
+        },
+    ]
+
+    response = client.get("/api/shows/7/recent-episodes")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["show"]["id"] == 7
+    assert [e["id"] for e in body["episodes"]] == [12, 11]
+    assert body["episodes"][0]["position_ms"] == 600_000
+    assert body["episodes"][0]["duration_ms"] == 7_200_000
+    assert body["episodes"][0]["completed"] is False
+    assert body["episodes"][1]["duration_ms"] is None
+    assert body["episodes"][1]["last_played_at"] is None
+    fetch_args, _ = mock_conn.fetch.call_args
+    assert fetch_args[1] == 7
+    assert fetch_args[2] == 20
+
+
+def test_recent_episodes_404_when_show_missing(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = None
+
+    response = client.get("/api/shows/999/recent-episodes")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "show not found"
+    mock_conn.fetch.assert_not_awaited()
+
+
+def test_recent_episodes_honours_custom_limit(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "x",
+        "episode_count": 0,
+    }
+    mock_conn.fetch.return_value = []
+
+    response = client.get("/api/shows/7/recent-episodes?limit=5")
+
+    assert response.status_code == 200
+    fetch_args, _ = mock_conn.fetch.call_args
+    assert fetch_args[2] == 5
+
+
+def test_recent_episodes_rejects_oversized_limit(client: TestClient, mock_conn: AsyncMock) -> None:
+    del mock_conn
+    response = client.get("/api/shows/7/recent-episodes?limit=51")
+    assert response.status_code == 422
+
+
+def test_recent_episodes_db_error_500(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchrow.return_value = {
+        "id": 7,
+        "station": "rthk-radio1",
+        "name": "x",
+        "episode_count": 0,
+    }
+    mock_conn.fetch.side_effect = OSError("connection refused")
+
+    response = client.get("/api/shows/7/recent-episodes")
+
+    assert response.status_code == 500
+    assert "connection refused" in response.json()["detail"]

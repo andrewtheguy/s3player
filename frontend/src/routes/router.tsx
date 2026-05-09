@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { EpisodesPage } from '@/routes/episodes'
+import { FavoritesPage } from '@/routes/favorites'
 import { MonthsPage } from '@/routes/months'
 import { PlayerPage } from '@/routes/player'
 import { RootLayout } from '@/routes/root'
@@ -21,6 +22,7 @@ export function AppRouter() {
         <Route path="shows/:show_id" element={<YearsPage />} />
         <Route path="shows/:show_id/:year" element={<MonthsPage />} />
         <Route path="shows/:show_id/:year/:month" element={<EpisodesPage />} />
+        <Route path="favorites/:show_id" element={<FavoritesPage />} />
         <Route path="player/:episode_id" element={<PlayerPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
