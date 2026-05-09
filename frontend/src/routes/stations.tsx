@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { BreadcrumbTrail } from '@/components/breadcrumb-trail'
 import { EpisodeCard } from '@/components/episode-card'
 import {
+  type FavoritesResponse,
   playerApi,
   type RecentEpisode,
   type RecentResponse,
@@ -45,6 +46,9 @@ export function StationsPage() {
   const { data, error, loading } = useFetch<StationsResponse>(
     '/api/shows/stations',
   )
+  const { data: favorites } = useFetch<FavoritesResponse>(
+    '/api/shows/favorites',
+  )
   const { data: inProgress } = useFetch<RecentResponse>(
     '/api/player/in-progress',
   )
@@ -77,9 +81,42 @@ export function StationsPage() {
   if (error) return <p className="text-destructive">Error: {error}</p>
   const stations = data?.stations ?? []
 
+  const favoriteShows = favorites?.favorites ?? []
+
   return (
     <div className="space-y-8">
       <BreadcrumbTrail crumbs={[{ label: 'Stations' }]} />
+
+      {favoriteShows.length > 0 ? (
+        <section>
+          <h2 className="mb-3 text-lg font-semibold tracking-tight">
+            Favorites
+          </h2>
+          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
+            {favoriteShows.map((f) => (
+              <Link
+                key={f.id}
+                to={`/favorites/${f.id}`}
+                className="block min-w-[16rem] shrink-0 rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
+              >
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {f.station}
+                </div>
+                <div className="mt-1 truncate font-medium">{f.name}</div>
+                <div className="mt-0.5 text-sm text-muted-foreground">
+                  {f.episode_count}{' '}
+                  {f.episode_count === 1 ? 'episode' : 'episodes'}
+                </div>
+                {f.latest_aired_on ? (
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Latest: {f.latest_aired_on}
+                  </div>
+                ) : null}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <HomeRow
         title="Continue listening"

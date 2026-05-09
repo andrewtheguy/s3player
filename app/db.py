@@ -50,6 +50,13 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS episode_play_state_recent_idx "
     "ON episode_play_state (last_played_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS favorite_shows (
+        show_id      INTEGER PRIMARY KEY REFERENCES shows(id) ON DELETE CASCADE,
+        favorited_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS favorite_shows_recent_idx ON favorite_shows (favorited_at DESC)",
 )
 
 

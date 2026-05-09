@@ -1,8 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Any
 
 from asyncpg.pool import PoolConnectionProxy
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -25,6 +25,7 @@ class Show(BaseModel):
     id: int
     name: str
     episode_count: int
+    is_favorite: bool
 
 
 class ShowsResponse(BaseModel):
@@ -36,6 +37,37 @@ class ShowDetail(BaseModel):
     station: str
     name: str
     episode_count: int
+
+
+class FavoriteShow(BaseModel):
+    id: int
+    station: str
+    name: str
+    episode_count: int
+    favorited_at: datetime
+    latest_aired_on: date | None
+
+
+class FavoritesResponse(BaseModel):
+    favorites: list[FavoriteShow]
+
+
+class ShowEpisode(BaseModel):
+    id: int
+    aired_on: date
+    time_slot: str | None
+    show_id: int
+    show_name: str
+    station: str
+    position_ms: int
+    duration_ms: int | None
+    completed: bool
+    last_played_at: datetime | None
+
+
+class RecentShowEpisodesResponse(BaseModel):
+    show: ShowDetail
+    episodes: list[ShowEpisode]
 
 
 class MonthBucket(BaseModel):
@@ -166,7 +198,39 @@ async def list_shows(
     except catalog.CatalogDatabaseError as e:
         raise _db_error(e) from e
     return ShowsResponse(
-        shows=[Show(id=s.id, name=s.name, episode_count=s.episode_count) for s in shows]
+        shows=[
+            Show(
+                id=s.id,
+                name=s.name,
+                episode_count=s.episode_count,
+                is_favorite=s.is_favorite,
+            )
+            for s in shows
+        ]
+    )
+
+
+@router.get("/favorites", summary="List favorite shows")
+async def list_favorites(
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> FavoritesResponse:
+    """List shows the user has marked as favorite, newest favorites first."""
+    try:
+        favorites = await catalog.list_favorites(conn)
+    except catalog.CatalogDatabaseError as e:
+        raise _db_error(e) from e
+    return FavoritesResponse(
+        favorites=[
+            FavoriteShow(
+                id=f.id,
+                station=f.station,
+                name=f.name,
+                episode_count=f.episode_count,
+                favorited_at=f.favorited_at,
+                latest_aired_on=f.latest_aired_on,
+            )
+            for f in favorites
+        ]
     )
 
 
@@ -185,6 +249,77 @@ async def get_show(
         raise HTTPException(status_code=404, detail=e.detail) from e
     except catalog.CatalogDatabaseError as e:
         raise _db_error(e) from e
+
+
+@router.post("/{show_id}/favorite", summary="Mark a show as favorite")
+async def add_favorite(
+    show_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> dict[str, str]:
+    """Mark a show as favorite. Idempotent — re-marking returns 200.
+
+    Returns 404 if the show does not exist.
+    """
+    try:
+        await catalog.add_favorite(conn, show_id)
+    except catalog.CatalogNotFound as e:
+        raise HTTPException(status_code=404, detail=e.detail) from e
+    except catalog.CatalogDatabaseError as e:
+        raise _db_error(e) from e
+    return {"status": "ok"}
+
+
+@router.delete("/{show_id}/favorite", summary="Unmark a show as favorite")
+async def remove_favorite(
+    show_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+) -> dict[str, str]:
+    """Remove a show from the favorites list. Idempotent."""
+    try:
+        await catalog.remove_favorite(conn, show_id)
+    except catalog.CatalogDatabaseError as e:
+        raise _db_error(e) from e
+    return {"status": "ok"}
+
+
+@router.get(
+    "/{show_id}/recent-episodes",
+    summary="List the most recent episodes for a show, with progress",
+)
+async def list_recent_episodes(
+    show_id: Annotated[int, Path(ge=1)],
+    conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> RecentShowEpisodesResponse:
+    """Return up to `limit` (default 20) latest episodes for the show in
+    descending air-date / time-slot order, each carrying its current play state.
+
+    Returns 404 if the show does not exist.
+    """
+    try:
+        show, episodes = await catalog.list_recent_show_episodes(conn, show_id, limit)
+    except catalog.CatalogNotFound as e:
+        raise HTTPException(status_code=404, detail=e.detail) from e
+    except catalog.CatalogDatabaseError as e:
+        raise _db_error(e) from e
+    return RecentShowEpisodesResponse(
+        show=_show_detail(show),
+        episodes=[
+            ShowEpisode(
+                id=e.id,
+                aired_on=e.aired_on,
+                time_slot=e.time_slot,
+                show_id=e.show_id,
+                show_name=e.show_name,
+                station=e.station,
+                position_ms=e.position_ms,
+                duration_ms=e.duration_ms,
+                completed=e.completed,
+                last_played_at=e.last_played_at,
+            )
+            for e in episodes
+        ],
+    )
 
 
 @router.get("/{show_id}/months", summary="List month buckets for a show")

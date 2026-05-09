@@ -76,9 +76,39 @@ export interface Show {
   id: number
   name: string
   episode_count: number
+  is_favorite: boolean
 }
 export interface ShowsResponse {
   shows: Show[]
+}
+
+export interface FavoriteShow {
+  id: number
+  station: string
+  name: string
+  episode_count: number
+  favorited_at: string
+  latest_aired_on: string | null
+}
+export interface FavoritesResponse {
+  favorites: FavoriteShow[]
+}
+
+export interface ShowEpisode {
+  id: number
+  aired_on: string
+  time_slot: string | null
+  show_id: number
+  show_name: string
+  station: string
+  position_ms: number
+  duration_ms: number | null
+  completed: boolean
+  last_played_at: string | null
+}
+export interface RecentShowEpisodesResponse {
+  show: ShowDetail
+  episodes: ShowEpisode[]
 }
 
 export interface ShowDetail {
@@ -155,6 +185,18 @@ export interface RecentResponse {
 
 export interface ClaimResponse {
   session_token: string
+}
+
+export const showsApi = {
+  listFavorites: () => apiFetch<FavoritesResponse>('/api/shows/favorites'),
+  addFavorite: (id: number) =>
+    apiPostJson<{ status: string }>(`/api/shows/${id}/favorite`, {}),
+  removeFavorite: (id: number) =>
+    apiDelete<{ status: string }>(`/api/shows/${id}/favorite`),
+  recentEpisodes: (id: number, limit = 20) =>
+    apiFetch<RecentShowEpisodesResponse>(
+      `/api/shows/${id}/recent-episodes?limit=${limit}`,
+    ),
 }
 
 export const playerApi = {
