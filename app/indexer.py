@@ -7,10 +7,10 @@ from asyncpg.pool import PoolConnectionProxy
 from botocore.exceptions import ClientError
 
 from app.chapters import normalize_chapters
-from app.config import Settings, get_settings
+from app.config import get_settings
 from app.db import bootstrap_schema, close_pool, get_pool
-from app.parse_key import ParsedEpisode, parse_episode_key
 from app.s3_client import get_s3_client
+from app.show_metadata import ShowMetadata, ShowMetadataError, extract_show_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ STATION_PREFIXES: dict[str, str] = {
 }
 
 METADATA_SUFFIX = ".metadata.json"
+AUDIO_EXTENSIONS = (".m4a", ".mka")
 
 _SHOW_UPSERT = """
 INSERT INTO shows (station, name) VALUES ($1, $2)
@@ -88,42 +89,23 @@ def _fetch_metadata(client: Any, bucket: str, metadata_key: str) -> dict[str, An
     return data
 
 
-async def _store_chapters(
-    conn: PoolConnectionProxy,
-    client: Any,
-    settings: Settings,
-    episode_id: int,
-    metadata_key: str,
-) -> bool:
-    meta = await asyncio.to_thread(_fetch_metadata, client, settings.s3_bucket, metadata_key)
-    if meta is None:
-        return False
-    raw = meta.get("chapters")
-    if not isinstance(raw, list):
-        logger.warning("metadata chapters missing or not a list for %s", metadata_key)
-        return False
-    chapters = normalize_chapters(raw)
-    await conn.execute(_EPISODE_SET_CHAPTERS, chapters, episode_id)
-    return True
-
-
 async def _index_one(
     conn: PoolConnectionProxy,
     show_cache: dict[tuple[str, str], int],
     station: str,
     s3_key: str,
-    parsed: ParsedEpisode,
+    meta: ShowMetadata,
 ) -> int | None:
-    cache_key = (station, parsed.show)
+    cache_key = (station, meta.name)
     show_id = show_cache.get(cache_key)
     if show_id is None:
-        show_id = await conn.fetchval(_SHOW_UPSERT, station, parsed.show)
+        show_id = await conn.fetchval(_SHOW_UPSERT, station, meta.name)
         if show_id is None:
             raise RuntimeError(
-                f"shows upsert returned no id for station={station!r} show={parsed.show!r}"
+                f"shows upsert returned no id for station={station!r} show={meta.name!r}"
             )
         show_cache[cache_key] = show_id
-    return await conn.fetchval(_EPISODE_INSERT, s3_key, show_id, parsed.aired_on, parsed.time_slot)
+    return await conn.fetchval(_EPISODE_INSERT, s3_key, show_id, meta.aired_on, meta.time_slot)
 
 
 async def _run() -> None:
@@ -134,7 +116,8 @@ async def _run() -> None:
     scanned = 0
     skipped_non_metadata = 0
     skipped_missing_audio = 0
-    skipped_unparseable = 0
+    skipped_invalid_metadata = 0
+    skipped_missing_show_date = 0
     inserted = 0
     already_present = 0
     chapters_filled = 0
@@ -151,7 +134,7 @@ async def _run() -> None:
                 logger.info("scanning %s (station=%s)", prefix, station)
                 keys = await asyncio.to_thread(_list_keys, client, settings.s3_bucket, prefix)
                 total = len(keys)
-                audio_keys_set = {k for k in keys if k.endswith(".m4a")}
+                audio_keys_set = {k for k in keys if k.endswith(AUDIO_EXTENSIONS)}
                 metadata_keys = [k for k in keys if k.endswith(METADATA_SUFFIX)]
                 scanned += total
                 skipped_non_metadata += total - len(metadata_keys)
@@ -170,22 +153,45 @@ async def _run() -> None:
                         skipped_missing_audio += 1
                         logger.warning("%s sidecar without audio file: %s", progress, metadata_key)
                         continue
-                    parsed = parse_episode_key(audio_key)
-                    if parsed is None:
-                        skipped_unparseable += 1
-                        logger.warning("%s could not parse: %s", progress, audio_key)
+                    meta = await asyncio.to_thread(
+                        _fetch_metadata, client, settings.s3_bucket, metadata_key
+                    )
+                    if meta is None:
+                        skipped_invalid_metadata += 1
+                        continue
+                    result = extract_show_metadata(meta)
+                    if isinstance(result, ShowMetadataError):
+                        if result is ShowMetadataError.MISSING_DATE:
+                            skipped_missing_show_date += 1
+                            logger.info("%s skipping (no show.date): %s", progress, metadata_key)
+                        else:
+                            skipped_invalid_metadata += 1
+                            logger.warning(
+                                "%s invalid show metadata (%s): %s",
+                                progress,
+                                result.value,
+                                metadata_key,
+                            )
                         continue
                     present_keys.add(audio_key)
-                    new_id = await _index_one(conn, show_cache, station, audio_key, parsed)
+                    new_id = await _index_one(conn, show_cache, station, audio_key, result)
                     if new_id is None:
                         already_present += 1
                         logger.info("%s already indexed: %s", progress, audio_key)
                         continue
                     inserted += 1
-                    if await _store_chapters(conn, client, settings, new_id, metadata_key):
+                    raw_chapters = meta.get("chapters")
+                    if isinstance(raw_chapters, list):
+                        chapters = normalize_chapters(raw_chapters)
+                        await conn.execute(_EPISODE_SET_CHAPTERS, chapters, new_id)
                         chapters_filled += 1
                         logger.info("%s inserted with chapters: %s", progress, audio_key)
                     else:
+                        logger.warning(
+                            "%s metadata chapters missing or not a list: %s",
+                            progress,
+                            metadata_key,
+                        )
                         logger.info("%s inserted (no chapters): %s", progress, audio_key)
 
             present_list = list(present_keys)
@@ -200,12 +206,14 @@ async def _run() -> None:
 
     logger.info(
         "done: scanned=%d inserted=%d already_present=%d "
-        "skipped_unparseable=%d skipped_non_metadata=%d skipped_missing_audio=%d "
+        "skipped_invalid_metadata=%d skipped_missing_show_date=%d "
+        "skipped_non_metadata=%d skipped_missing_audio=%d "
         "chapters_filled=%d soft_deleted=%d restored=%d",
         scanned,
         inserted,
         already_present,
-        skipped_unparseable,
+        skipped_invalid_metadata,
+        skipped_missing_show_date,
         skipped_non_metadata,
         skipped_missing_audio,
         chapters_filled,
