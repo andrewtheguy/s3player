@@ -79,6 +79,9 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
   )
   const [selectedChapterIndex, setSelectedChapterIndex] = useState(0)
   const prevChapterIndexRef = useRef<number>(-1)
+  // Set when the user clicks "Mark as completed" so the follow-up onPause save
+  // doesn't overwrite our explicit completed=true with completed=false.
+  const justMarkedCompletedRef = useRef(false)
 
   const trySeedInitialPosition = useCallback(() => {
     if (seededInitialPosRef.current) return
@@ -134,6 +137,17 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
     },
     [episode.id, finiteDurationMs, postProgress],
   )
+
+  const handleMarkCompleted = useCallback(async () => {
+    justMarkedCompletedRef.current = true
+    try {
+      await saveProgress(true)
+      setReplayConfirmNeeded(true)
+      audioRef.current?.pause()
+    } catch {
+      justMarkedCompletedRef.current = false
+    }
+  }, [saveProgress])
 
   const togglePlayPause = () => {
     const audio = audioRef.current
@@ -301,6 +315,10 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
         }}
         onPause={() => {
           setIsPlaying(false)
+          if (justMarkedCompletedRef.current) {
+            justMarkedCompletedRef.current = false
+            return
+          }
           if (sessionStatus === 'active') {
             void saveProgress()
           }
@@ -486,7 +504,21 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
                       <span>{formatTime(sliderValue)}</span>
                       <span>{formatTime(max)}</span>
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleMarkCompleted()
+                        }}
+                        disabled={
+                          !isLoaded ||
+                          replayConfirmNeeded ||
+                          sessionStatus !== 'active'
+                        }
+                        className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Mark as completed
+                      </button>
                       <button
                         type="button"
                         onClick={toggleSeekMode}
@@ -512,8 +544,22 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
                   <span>{formatTime(currentTime)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
-                {hasChapters && (
-                  <div className="flex justify-end">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleMarkCompleted()
+                    }}
+                    disabled={
+                      !isLoaded ||
+                      replayConfirmNeeded ||
+                      sessionStatus !== 'active'
+                    }
+                    className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Mark as completed
+                  </button>
+                  {hasChapters && (
                     <button
                       type="button"
                       onClick={toggleSeekMode}
@@ -521,8 +567,8 @@ function EpisodePlayer({ episode }: { episode: Episode }) {
                     >
                       Show chapter view
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>

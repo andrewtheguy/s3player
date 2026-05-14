@@ -214,7 +214,7 @@ async def list_shows(
 async def list_favorites(
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> FavoritesResponse:
-    """List shows the user has marked as favorite, newest favorites first."""
+    """List favorite shows, sorted by latest episode aired date first."""
     try:
         favorites = await catalog.list_favorites(conn)
     except catalog.CatalogDatabaseError as e:
