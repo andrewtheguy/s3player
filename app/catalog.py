@@ -279,7 +279,8 @@ async def list_favorites(conn: PoolConnectionProxy) -> list[FavoriteShow]:
             "JOIN shows s ON s.id = f.show_id "
             "LEFT JOIN episodes e ON e.show_id = s.id "
             "GROUP BY s.id, s.station, s.name, f.favorited_at "
-            "ORDER BY f.favorited_at DESC"
+            "ORDER BY MAX(e.aired_on) FILTER (WHERE e.deleted = FALSE) DESC NULLS LAST, "
+            "f.favorited_at DESC"
         )
     except Exception as e:
         raise _db_error(e) from e
