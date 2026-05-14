@@ -117,12 +117,14 @@ Schema is created by `bootstrap_schema` using `IF NOT EXISTS` statements:
 `app.indexer.run` is invoked by the CLI:
 
 1. Open the pool, bootstrap schema.
-2. For each configured station prefix, paginate `ListObjectsV2` and split the listing into the set of `.m4a` audio keys and the list of `.m4a.metadata.json` sidecar keys.
+2. For each configured station prefix, paginate `ListObjectsV2` and split the listing into the set of audio keys (`.m4a` and `.mka`) and the list of `.metadata.json` sidecar keys.
 3. For each sidecar, derive `audio_key` by stripping `.metadata.json`. Skip if the audio key is not in the listed set (sidecar without audio file).
-4. `parse_episode_key` (`app/parse_key.py`) extracts `aired_on`, `time_slot`, and the show name from `audio_key`.
-5. Upsert `shows`, then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes`. Newly-inserted rows return their id.
-6. For each new episode: `GetObject` the sidecar, parse JSON, run `app.chapters.normalize_chapters` over its `chapters` array (using `start_ms_in_show` / `end_ms_in_show` / `title`), and update `episodes.chapters`.
+4. `GetObject` the sidecar and parse it as JSON. `app.show_metadata.extract_show_metadata` reads the `show.{name, date, start, end}` fields and returns a `ShowMetadata` (name, `aired_on`, `time_slot`) or a `ShowMetadataError`. Sidecars whose `show.date` is missing are skipped at INFO; structurally invalid sidecars (missing `show` object, missing/empty name, malformed date) are skipped at WARNING. `time_slot` is `HHMM_HHMM` when both `show.start` and `show.end` parse, otherwise NULL.
+5. Upsert `shows` (keyed on station + name), then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes`. Newly-inserted rows return their id.
+6. For each new episode, run `app.chapters.normalize_chapters` over the same sidecar dict's `chapters` array (using `start_ms_in_show` / `end_ms_in_show` / `title`) and update `episodes.chapters` — no second S3 fetch.
 7. Soft-delete any `episodes.s3_key` not seen in this run; restore any previously-deleted key that reappeared.
+
+The sidecar contract (canonical writer: upstream `extract_shows_rthk`; documented in `tmp/radio_show_tools/docs/show_sidecar.md`) is the only metadata source — the S3 key is treated purely as the audio path, not parsed for show name or air time.
 
 The indexer is safe to re-run: every write is an upsert or a conditional update.
 
@@ -168,10 +170,12 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 s3player index
   → asyncpg pool + bootstrap_schema
   → S3 ListObjectsV2 (paginated) per station prefix
-  → split listing into .m4a set and .m4a.metadata.json sidecars
+  → split listing into audio set (.m4a, .mka) and .metadata.json sidecars
   → for each sidecar with a matching audio file:
-       parse_episode_key  ──→ shows upsert  ──→ episodes insert
-       → GetObject sidecar → normalize_chapters → chapters JSONB
+       GetObject sidecar (once)
+       → extract_show_metadata (show.name/date/start/end)
+       → shows upsert  ──→ episodes insert
+       → normalize_chapters over the same dict → chapters JSONB
   → soft-delete missing keys; restore reappeared keys
 ```
 
@@ -210,7 +214,7 @@ Current coverage includes:
 - `test_shows_router.py` — browse hierarchy, audio range requests (206/416).
 - `test_auth_router.py` — HTML login cookie flow, token login, bearer auth, and API auth failures.
 - `test_player_router.py` — session claim/validate, displacement handling, progress writes, completion writes, and progress defaults.
-- `test_parse_key.py`, `test_chapters.py` — pure-function unit tests for the indexer's parsing helpers.
+- `test_show_metadata.py`, `test_chapters.py` — pure-function unit tests for the indexer's sidecar parsing helpers.
 
 ## Deployment
 
