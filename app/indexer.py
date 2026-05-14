@@ -14,10 +14,7 @@ from app.show_metadata import ShowMetadata, ShowMetadataError, extract_show_meta
 
 logger = logging.getLogger(__name__)
 
-STATION_PREFIXES: dict[str, str] = {
-    "shows/rthk-radio1/": "rthk-radio1",
-    "shows/rthk-radio2/": "rthk-radio2",
-}
+SHOWS_ROOT_PREFIX = "shows/"
 
 METADATA_SUFFIX = ".metadata.json"
 AUDIO_EXTENSIONS = (".m4a", ".mka")
@@ -65,6 +62,22 @@ def _list_keys(client: Any, bucket: str, prefix: str) -> list[str]:
         for item in page.get("Contents", []):
             keys.append(item["Key"])
     return keys
+
+
+def _list_station_prefixes(client: Any, bucket: str) -> list[tuple[str, str]]:
+    paginator = client.get_paginator("list_objects_v2")
+    results: list[tuple[str, str]] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=SHOWS_ROOT_PREFIX, Delimiter="/"):
+        for item in page.get("CommonPrefixes", []):
+            prefix = item.get("Prefix")
+            if not prefix:
+                continue
+            station = prefix.removeprefix(SHOWS_ROOT_PREFIX).rstrip("/")
+            if not station:
+                continue
+            results.append((prefix, station))
+    results.sort()
+    return results
 
 
 def _fetch_metadata(client: Any, bucket: str, metadata_key: str) -> dict[str, Any] | None:
@@ -130,7 +143,17 @@ async def _run() -> None:
             await bootstrap_schema(conn)
 
             show_cache: dict[tuple[str, str], int] = {}
-            for prefix, station in STATION_PREFIXES.items():
+            stations = await asyncio.to_thread(_list_station_prefixes, client, settings.s3_bucket)
+            if not stations:
+                logger.warning("no stations discovered under %s", SHOWS_ROOT_PREFIX)
+            else:
+                logger.info(
+                    "discovered %d station(s) under %s: %s",
+                    len(stations),
+                    SHOWS_ROOT_PREFIX,
+                    ", ".join(station for _, station in stations),
+                )
+            for prefix, station in stations:
                 logger.info("scanning %s (station=%s)", prefix, station)
                 keys = await asyncio.to_thread(_list_keys, client, settings.s3_bucket, prefix)
                 total = len(keys)
