@@ -53,7 +53,7 @@ The split is by URL prefix:
 
 The production Python server enforces authentication in `site_password_gate` before requests reach API routers or the mounted SPA/static files.
 
-**Rule.** All `/api/*` paths require site auth (cookie or bearer), with two exceptions noted below. All `/api/player/*` writes additionally require `X-Player-Session`, with one exception (the claim endpoint that issues the token).
+**Rule.** All `/api/*` paths require site auth (cookie or bearer), with one exception (`POST /api/auth/login`, which exchanges the password for the bearer token). All `/api/player/*` writes additionally require `X-Player-Session`, with one exception (the claim endpoint that issues the token).
 
 | Auth tier | Paths |
 | --- | --- |
