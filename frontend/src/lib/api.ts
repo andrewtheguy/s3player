@@ -55,8 +55,14 @@ export async function apiPostJson<T>(
   return (await response.json()) as T
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
-  const response = await fetch(path, { method: 'DELETE' })
+export async function apiDelete<T>(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<T> {
+  const response = await fetch(path, {
+    method: 'DELETE',
+    headers: headers ?? {},
+  })
   if (response.status === 401) redirectToLogin()
   if (!response.ok) {
     throw new ApiError(response.status, await readErrorDetail(response))
@@ -225,6 +231,9 @@ export const playerApi = {
     ),
   getProgress: (episodeId: number) =>
     apiFetch<ProgressResponse>(`/api/player/episodes/${episodeId}/progress`),
-  deleteProgress: (episodeId: number) =>
-    apiDelete<{ status: string }>(`/api/player/episodes/${episodeId}/progress`),
+  deleteProgress: (episodeId: number, sessionToken: string) =>
+    apiDelete<{ status: string }>(
+      `/api/player/episodes/${episodeId}/progress`,
+      { 'X-Player-Session': sessionToken },
+    ),
 }

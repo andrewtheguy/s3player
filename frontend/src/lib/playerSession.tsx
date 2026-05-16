@@ -12,7 +12,7 @@ import { ApiError, playerApi } from '@/lib/api'
 // Global per tab — the backend session row is single-row, not scoped per episode.
 const STORAGE_KEY = 's3player.session_token'
 
-function readStoredToken(): string | null {
+export function readStoredToken(): string | null {
   try {
     const v = sessionStorage.getItem(STORAGE_KEY)
     return v && v.length > 0 ? v : null
