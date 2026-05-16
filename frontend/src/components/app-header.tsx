@@ -42,7 +42,16 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
       <div className="container mx-auto flex items-center justify-between gap-3 px-6 py-3">
-        <Link to="/stations" className="text-lg font-semibold tracking-tight">
+        <Link
+          to="/stations"
+          className="flex items-center gap-2 text-lg font-semibold tracking-tight"
+        >
+          <img
+            src="/favicon.svg"
+            alt=""
+            aria-hidden="true"
+            className="h-6 w-6 rounded-sm"
+          />
           s3player
         </Link>
         <div className="flex items-center gap-3">
