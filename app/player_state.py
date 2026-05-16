@@ -148,11 +148,18 @@ async def save_progress(
         )
 
 
-async def delete_progress(conn: PoolConnectionProxy, episode_id: int) -> None:
-    await conn.execute(
-        "DELETE FROM episode_play_state WHERE episode_id = $1",
-        episode_id,
-    )
+async def delete_progress(
+    conn: PoolConnectionProxy,
+    session_token: str,
+    episode_id: int,
+) -> None:
+    async with conn.transaction():
+        await _guard_session(conn, session_token)
+        await _touch_session(conn, session_token)
+        await conn.execute(
+            "DELETE FROM episode_play_state WHERE episode_id = $1",
+            episode_id,
+        )
 
 
 async def get_progress(conn: PoolConnectionProxy, episode_id: int) -> Progress:

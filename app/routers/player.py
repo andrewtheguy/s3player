@@ -157,14 +157,20 @@ async def get_progress(
 async def delete_progress(
     episode_id: Annotated[int, Path(ge=1)],
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
+    x_player_session: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
     """Drop the play-state row for an episode so it disappears from the
     in-progress and recently-completed lists.
 
-    Idempotent: returns 200 whether or not a row existed. Does not require a
-    player session token.
+    Requires `X-Player-Session`. Returns 401 if the header is missing and
+    409 if the token has been displaced. Idempotent — returns 200 whether
+    or not a row existed.
     """
-    await player_state.delete_progress(conn, episode_id)
+    session_token = _require_session_token(x_player_session)
+    try:
+        await player_state.delete_progress(conn, session_token, episode_id)
+    except player_state.SessionDisplaced as e:
+        raise HTTPException(status_code=409, detail=e.detail) from e
     return {"status": "ok"}
 
 

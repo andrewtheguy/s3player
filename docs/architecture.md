@@ -53,27 +53,13 @@ The split is by URL prefix:
 
 The production Python server enforces authentication in `site_password_gate` before requests reach API routers or the mounted SPA/static files.
 
-| Path | Site auth? | Player session token? | Notes |
-| --- | --- | --- | --- |
-| `GET /login`, `POST /login` | No | No | **Internal use only** — HTML login form and auth cookie creation for the SPA in browsers; not part of the public API and not documented in OpenAPI. Third-party clients should use `POST /api/auth/login` instead. |
-| `POST /api/auth/login` | No | No | Password-to-bearer-token login for non-browser clients. |
-| `GET /api/shows/stations` | Yes | No | Lists stations. |
-| `GET /api/shows/stations/{station}/shows` | Yes | No | Lists shows for a station. |
-| `GET /api/shows/{show_id}` | Yes | No | Reads show detail. |
-| `GET /api/shows/{show_id}/months` | Yes | No | Lists month buckets for a show. |
-| `GET /api/shows/{show_id}/months/{year}/{month}/episodes` | Yes | No | Lists episodes in a month. |
-| `GET /api/shows/episodes/{episode_id}` | Yes | No | Reads episode detail. |
-| `GET /api/shows/episodes/{episode_id}/audio` | Yes | No | Backend audio stream proxy; supports S3 range forwarding. |
-| `GET /api/shows/episodes/{episode_id}/audio_url` | Yes | No | Returns a presigned S3 URL for direct media fetches. |
-| `GET /api/shows/episodes/{episode_id}/chapter_summaries` | Yes | No | Lists per-chapter markdown summaries for an episode. |
-| `POST /api/player/session/claim` | Yes | No | Creates a new active player session and displaces any previous session token. |
-| `POST /api/player/session/validate` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. |
-| `POST /api/player/episodes/{id}/progress` | Yes | Yes | Requires `X-Player-Session`; stale/displaced tokens return 409. Body `completed: true` marks the episode fully played in the same write. |
-| `GET /api/player/episodes/{id}/progress` | Yes | No | Reads saved progress. |
-| `DELETE /api/player/episodes/{id}/progress` | Yes | No | Drops the play-state row; idempotent. Used by the home page X button to dismiss a Continue-listening entry. |
-| `GET /api/player/recent-completed`, `GET /api/player/in-progress` | Yes | No | Reads playback history rows. |
-| All other `/api/*` paths | Yes | N/A | Site auth is checked before routing; authenticated unknown paths return 404. |
-| SPA/static routes, `/docs`, `/redoc`, `/openapi.json` | Yes | No | Unauthenticated requests redirect to `/login?next=...`; authenticated requests continue. |
+**Rule.** All `/api/*` paths require site auth (cookie or bearer), with two exceptions noted below. All `/api/player/*` writes additionally require `X-Player-Session`, with one exception (the claim endpoint that issues the token).
+
+| Auth tier | Paths |
+| --- | --- |
+| **No site auth** | `GET /login`, `POST /login` — internal HTML login form and auth cookie creation for the SPA in browsers; not part of the public API and not documented in OpenAPI. `POST /api/auth/login` — password-to-bearer-token exchange for non-browser clients. |
+| **Site auth only** | All `GET /api/shows/*` (browse hierarchy, episode detail, audio stream proxy, presigned audio URL, chapter summaries). `POST` and `DELETE /api/shows/{id}/favorite` (library actions, not playback state). `GET /api/player/episodes/{id}/progress`, `GET /api/player/recent-completed`, `GET /api/player/in-progress` (read-only playback history). `POST /api/player/session/claim` (issues a new token; cannot require what it produces — it also displaces any previously-issued token). SPA / static routes, `/docs`, `/redoc`, `/openapi.json` (unauthenticated requests redirect to `/login?next=…`). All other authenticated `/api/*` paths return 404. |
+| **Site auth + `X-Player-Session`** | `POST /api/player/session/validate`. `POST /api/player/episodes/{id}/progress` (body `completed: true` marks the episode fully played in the same write). `DELETE /api/player/episodes/{id}/progress` (idempotent; used by the home page X button to dismiss a Continue-listening entry — only the currently-active player may dismiss). |
 
 Site-auth-protected API routes accept either the `s3player_auth` cookie or `Authorization: Bearer <token>`. Player-session-token routes additionally require `X-Player-Session`; missing tokens return `401 {"detail": "missing session token"}`, and stale/displaced tokens return `409 {"detail": "session displaced"}`.
 

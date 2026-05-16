@@ -9,6 +9,7 @@ import {
   type RecentResponse,
   type StationsResponse,
 } from '@/lib/api'
+import { readStoredToken } from '@/lib/playerSession'
 import { useDocumentTitle } from '@/lib/use-document-title'
 import { useFetch } from '@/lib/use-fetch'
 
@@ -82,9 +83,15 @@ export function StationsPage() {
   }, [inProgress])
 
   const handleRemoveInProgress = (episode: RecentEpisode) => {
+    const token = readStoredToken()
+    if (!token) {
+      // Only the currently-active player can mutate playback state. A tab
+      // that never claimed a session has nothing to dismiss server-side.
+      return
+    }
     pendingRemovalsRef.current.add(episode.id)
     setInProgressEpisodes((prev) => prev.filter((e) => e.id !== episode.id))
-    playerApi.deleteProgress(episode.id).catch((err: unknown) => {
+    playerApi.deleteProgress(episode.id, token).catch((err: unknown) => {
       console.error('Failed to remove from Continue listening', err)
       pendingRemovalsRef.current.delete(episode.id)
       setInProgressEpisodes((prev) =>
