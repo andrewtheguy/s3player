@@ -103,7 +103,7 @@ Schema is created by `bootstrap_schema` using `IF NOT EXISTS` statements:
 `app.indexer.run` is invoked by the CLI:
 
 1. Open the pool, bootstrap schema.
-2. For each configured station prefix, paginate `ListObjectsV2` and split the listing into the set of audio keys (`.m4a` and `.mka`) and the list of `.metadata.json` sidecar keys.
+2. For each configured station prefix, paginate `ListObjectsV2` and split the listing into the set of audio keys (`.m4a` and `.ogg`) and the list of `.metadata.json` sidecar keys.
 3. For each sidecar, derive `audio_key` by stripping `.metadata.json`. Skip if the audio key is not in the listed set (sidecar without audio file).
 4. `GetObject` the sidecar and parse it as JSON. `app.show_metadata.extract_show_metadata` reads the `show.{name, date, start, end}` fields and returns a `ShowMetadata` (name, `aired_on`, `time_slot`) or a `ShowMetadataError`. Sidecars whose `show.date` is missing are skipped at INFO; structurally invalid sidecars (missing `show` object, missing/empty name, malformed date) are skipped at WARNING. `time_slot` is `HHMM_HHMM` when both `show.start` and `show.end` parse, otherwise NULL.
 5. Upsert `shows` (keyed on station + name), then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes`. Newly-inserted rows return their id.
@@ -156,7 +156,7 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 s3player index
   → asyncpg pool + bootstrap_schema
   → S3 ListObjectsV2 (paginated) per station prefix
-  → split listing into audio set (.m4a, .mka) and .metadata.json sidecars
+  → split listing into audio set (.m4a, .ogg) and .metadata.json sidecars
   → for each sidecar with a matching audio file:
        GetObject sidecar (once)
        → extract_show_metadata (show.name/date/start/end)

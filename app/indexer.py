@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 SHOWS_ROOT_PREFIX = "shows/"
 
 METADATA_SUFFIX = ".metadata.json"
-AUDIO_EXTENSIONS = (".m4a", ".mka")
+AUDIO_EXTENSIONS = (".m4a", ".ogg")
 
 _SHOW_UPSERT = """
 INSERT INTO shows (station, name) VALUES ($1, $2)
