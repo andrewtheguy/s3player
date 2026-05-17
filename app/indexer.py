@@ -32,6 +32,16 @@ ON CONFLICT (s3_key) DO NOTHING
 RETURNING id
 """
 
+_EPISODE_UPSERT = """
+INSERT INTO episodes (s3_key, show_id, aired_on, time_slot)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (s3_key) DO UPDATE SET
+    show_id = EXCLUDED.show_id,
+    aired_on = EXCLUDED.aired_on,
+    time_slot = EXCLUDED.time_slot
+RETURNING id, (xmax = 0) AS inserted
+"""
+
 _EPISODE_SET_CHAPTERS = "UPDATE episodes SET chapters = $1::jsonb WHERE id = $2"
 
 _EPISODE_SOFT_DELETE_MISSING = """
@@ -108,7 +118,8 @@ async def _index_one(
     station: str,
     s3_key: str,
     meta: ShowMetadata,
-) -> int | None:
+    overwrite: bool,
+) -> tuple[int, bool] | None:
     cache_key = (station, meta.name)
     show_id = show_cache.get(cache_key)
     if show_id is None:
@@ -118,10 +129,18 @@ async def _index_one(
                 f"shows upsert returned no id for station={station!r} show={meta.name!r}"
             )
         show_cache[cache_key] = show_id
-    return await conn.fetchval(_EPISODE_INSERT, s3_key, show_id, meta.aired_on, meta.time_slot)
+    if overwrite:
+        row = await conn.fetchrow(_EPISODE_UPSERT, s3_key, show_id, meta.aired_on, meta.time_slot)
+        if row is None:
+            raise RuntimeError(f"episode upsert returned no row for s3_key={s3_key!r}")
+        return row["id"], row["inserted"]
+    new_id = await conn.fetchval(_EPISODE_INSERT, s3_key, show_id, meta.aired_on, meta.time_slot)
+    if new_id is None:
+        return None
+    return new_id, True
 
 
-async def _run() -> None:
+async def _run(overwrite: bool) -> None:
     settings = get_settings()
     client = get_s3_client()
     pool = await get_pool()
@@ -132,8 +151,10 @@ async def _run() -> None:
     skipped_invalid_metadata = 0
     skipped_missing_show_date = 0
     inserted = 0
+    updated = 0
     already_present = 0
     chapters_filled = 0
+    chapters_cleared = 0
     soft_deleted = 0
     restored = 0
     present_keys: set[str] = set()
@@ -197,25 +218,35 @@ async def _run() -> None:
                             )
                         continue
                     present_keys.add(audio_key)
-                    new_id = await _index_one(conn, show_cache, station, audio_key, result)
-                    if new_id is None:
+                    indexed = await _index_one(
+                        conn, show_cache, station, audio_key, result, overwrite
+                    )
+                    if indexed is None:
                         already_present += 1
                         logger.info("%s already indexed: %s", progress, audio_key)
                         continue
-                    inserted += 1
+                    episode_id, was_inserted = indexed
+                    verb = "inserted" if was_inserted else "updated"
+                    if was_inserted:
+                        inserted += 1
+                    else:
+                        updated += 1
                     raw_chapters = meta.get("chapters")
                     if isinstance(raw_chapters, list):
                         chapters = normalize_chapters(raw_chapters)
-                        await conn.execute(_EPISODE_SET_CHAPTERS, chapters, new_id)
+                        await conn.execute(_EPISODE_SET_CHAPTERS, chapters, episode_id)
                         chapters_filled += 1
-                        logger.info("%s inserted with chapters: %s", progress, audio_key)
+                        logger.info("%s %s with chapters: %s", progress, verb, audio_key)
                     else:
                         logger.warning(
                             "%s metadata chapters missing or not a list: %s",
                             progress,
                             metadata_key,
                         )
-                        logger.info("%s inserted (no chapters): %s", progress, audio_key)
+                        if not was_inserted:
+                            await conn.execute(_EPISODE_SET_CHAPTERS, None, episode_id)
+                            chapters_cleared += 1
+                        logger.info("%s %s (no chapters): %s", progress, verb, audio_key)
 
             present_list = list(present_keys)
             soft_deleted = _parse_update_count(
@@ -228,26 +259,29 @@ async def _run() -> None:
         await close_pool()
 
     logger.info(
-        "done: scanned=%d inserted=%d already_present=%d "
+        "done: overwrite=%s scanned=%d inserted=%d updated=%d already_present=%d "
         "skipped_invalid_metadata=%d skipped_missing_show_date=%d "
         "skipped_non_metadata=%d skipped_missing_audio=%d "
-        "chapters_filled=%d soft_deleted=%d restored=%d",
+        "chapters_filled=%d chapters_cleared=%d soft_deleted=%d restored=%d",
+        overwrite,
         scanned,
         inserted,
+        updated,
         already_present,
         skipped_invalid_metadata,
         skipped_missing_show_date,
         skipped_non_metadata,
         skipped_missing_audio,
         chapters_filled,
+        chapters_cleared,
         soft_deleted,
         restored,
     )
 
 
-def run() -> None:
+def run(overwrite: bool = False) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    asyncio.run(_run())
+    asyncio.run(_run(overwrite))
