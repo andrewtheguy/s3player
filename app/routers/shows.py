@@ -411,7 +411,10 @@ async def stream_episode_audio(
     request: Request,
     conn: Annotated[PoolConnectionProxy, Depends(get_conn)],
 ) -> StreamingResponse:
-    """Proxy the episode's audio bytes from S3 as `audio/mp4`.
+    """Proxy the episode's audio bytes from S3.
+
+    Content-Type is derived from the S3 key extension (`.m4a` → `audio/mp4`,
+    `.ogg` → `audio/ogg`).
 
     Forwards the client's `Range` header to S3 when present and returns 206 with
     `Content-Range` for partial responses; otherwise returns 200. Returns 404 if

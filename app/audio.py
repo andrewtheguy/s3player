@@ -9,8 +9,16 @@ from app.config import get_settings
 from app.s3_client import get_s3_client
 
 AUDIO_CHUNK_SIZE = 64 * 1024
-AUDIO_CONTENT_TYPE = "audio/mp4"
 AUDIO_URL_EXPIRES_IN = 3600
+_AUDIO_MEDIA_TYPES = {".m4a": "audio/mp4", ".ogg": "audio/ogg"}
+_DEFAULT_AUDIO_MEDIA_TYPE = "application/octet-stream"
+
+
+def _media_type_for_key(s3_key: str) -> str:
+    for ext, media_type in _AUDIO_MEDIA_TYPES.items():
+        if s3_key.endswith(ext):
+            return media_type
+    return _DEFAULT_AUDIO_MEDIA_TYPE
 
 
 class AudioRangeNotSatisfiable(Exception):
@@ -94,5 +102,5 @@ async def open_audio_stream(s3_key: str, range_header: str | None) -> AudioStrea
         body=_stream_body(s3_response["Body"]),
         status_code=206 if "ContentRange" in s3_response else 200,
         headers=headers,
-        media_type=AUDIO_CONTENT_TYPE,
+        media_type=_media_type_for_key(s3_key),
     )

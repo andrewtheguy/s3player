@@ -311,6 +311,19 @@ def test_audio_streams_full_object(client: TestClient, mock_conn: AsyncMock) -> 
     )
 
 
+def test_audio_ogg_returns_audio_ogg_content_type(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "shows/rthk-radio5/y.ogg"
+    body = io.BytesIO(b"OGGDATA")
+    s3_mock = MagicMock()
+    s3_mock.get_object.return_value = {"Body": body, "ContentLength": 7}
+
+    with patch("app.audio.get_s3_client", return_value=s3_mock):
+        response = client.get("/api/shows/episodes/12/audio")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/ogg"
+
+
 def test_audio_passes_range_and_returns_206(client: TestClient, mock_conn: AsyncMock) -> None:
     mock_conn.fetchval.return_value = "k.m4a"
     body = io.BytesIO(b"PARTIAL")
