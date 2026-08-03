@@ -1,8 +1,9 @@
+import contextlib
 import io
 from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError, ResponseStreamingError
 from fastapi.testclient import TestClient
 
 
@@ -392,6 +393,72 @@ def test_audio_other_client_error_502(client: TestClient, mock_conn: AsyncMock) 
 
     assert response.status_code == 502
     assert "AccessDenied" in response.json()["detail"]
+
+
+def test_audio_full_stream_keeps_cached_client(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    s3_mock = MagicMock()
+    s3_mock.get_object.return_value = {"Body": io.BytesIO(b"COMPLETE"), "ContentLength": 8}
+
+    with (
+        patch("app.audio.get_s3_client", return_value=s3_mock),
+        patch("app.audio.reset_s3_client") as reset_mock,
+    ):
+        response = client.get("/api/shows/episodes/11/audio")
+
+    assert response.status_code == 200
+    assert response.content == b"COMPLETE"
+    reset_mock.assert_not_called()
+
+
+def test_audio_short_stream_resets_cached_client(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    s3_mock = MagicMock()
+    # Upstream advertises 900 bytes but delivers 5: the pooled connection is dead.
+    s3_mock.get_object.return_value = {"Body": io.BytesIO(b"SHORT"), "ContentLength": 900}
+
+    with (
+        patch("app.audio.get_s3_client", return_value=s3_mock),
+        patch("app.audio.reset_s3_client") as reset_mock,
+    ):
+        client.get("/api/shows/episodes/11/audio")
+
+    reset_mock.assert_called_once()
+
+
+def test_audio_stream_error_resets_cached_client(client: TestClient, mock_conn: AsyncMock) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    body = MagicMock()
+    body.read.side_effect = ResponseStreamingError(error="connection broken")
+    s3_mock = MagicMock()
+    s3_mock.get_object.return_value = {"Body": body, "ContentLength": 900}
+
+    with (
+        patch("app.audio.get_s3_client", return_value=s3_mock),
+        patch("app.audio.reset_s3_client") as reset_mock,
+        contextlib.suppress(ResponseStreamingError),
+    ):
+        client.get("/api/shows/episodes/11/audio")
+
+    reset_mock.assert_called_once()
+    body.close.assert_called_once()
+
+
+def test_audio_connection_error_resets_cached_client(
+    client: TestClient, mock_conn: AsyncMock
+) -> None:
+    mock_conn.fetchval.return_value = "k.m4a"
+    s3_mock = MagicMock()
+    s3_mock.get_object.side_effect = EndpointConnectionError(endpoint_url="https://s3.invalid")
+
+    with (
+        patch("app.audio.get_s3_client", return_value=s3_mock),
+        patch("app.audio.reset_s3_client") as reset_mock,
+    ):
+        response = client.get("/api/shows/episodes/11/audio")
+
+    assert response.status_code == 502
+    reset_mock.assert_called_once()
 
 
 def test_audio_url_returns_presigned_url(client: TestClient, mock_conn: AsyncMock) -> None:

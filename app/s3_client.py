@@ -24,3 +24,13 @@ def get_s3_client() -> Any:
             response_checksum_validation="when_required",
         ),
     )
+
+
+def reset_s3_client() -> None:
+    """Drop the cached client so the next caller builds a fresh connection pool.
+
+    A connection that dies mid-response can be left behind in the shared client's
+    pool; every later `get_object` then returns valid headers with an empty body.
+    Rebuilding the client is the only way back out of that state.
+    """
+    get_s3_client.cache_clear()
