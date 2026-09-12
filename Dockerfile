@@ -38,6 +38,11 @@ WORKDIR /usr/src/app
 COPY app ./app
 COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 
+# Containers need to listen on all interfaces by default; both are overridable
+# at run time (env or `--host`/`--port` on the CMD).
+ENV SERVER_HOST=0.0.0.0 \
+    SERVER_PORT=8000
+
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["s3player", "server"]
