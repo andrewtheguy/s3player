@@ -96,5 +96,11 @@ if frontend_dist.is_dir():
     app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend")
 
 
-def run() -> None:
-    uvicorn.run("app.server:app", host="127.0.0.1", port=8000, reload=True)
+def run(host: str | None = None, port: int | None = None, *, reload: bool = False) -> None:
+    settings = get_settings()
+    uvicorn.run(
+        "app.server:app",
+        host=host if host is not None else settings.server_host,
+        port=port if port is not None else settings.server_port,
+        reload=reload,
+    )

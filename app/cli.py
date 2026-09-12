@@ -4,7 +4,23 @@ import argparse
 def main() -> None:
     parser = argparse.ArgumentParser(prog="s3player")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("server", help="Run the FastAPI server on :8000")
+    server_parser = sub.add_parser("server", help="Run the FastAPI server")
+    server_parser.add_argument(
+        "--host",
+        default=None,
+        help="Bind address (default: $SERVER_HOST, else 127.0.0.1)",
+    )
+    server_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port (default: $SERVER_PORT, else 8000)",
+    )
+    server_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Reload on code changes (development only)",
+    )
     index_parser = sub.add_parser("index", help="Index audio files from S3 into Postgres")
     index_parser.add_argument(
         "--overwrite",
@@ -17,7 +33,7 @@ def main() -> None:
     if args.cmd == "server":
         from app.server import run
 
-        run()
+        run(host=args.host, port=args.port, reload=args.reload)
     elif args.cmd == "index":
         from app.indexer import run
 

@@ -21,6 +21,8 @@ Backend reads from environment (a `.env` at the repo root works):
 | `S3_SECRET_ACCESS_KEY`  | S3 secret key                          |
 | `DATABASE_URL`          | Postgres URL (`postgres://…`)          |
 | `SITE_PASSWORD`         | Single password protecting the app     |
+| `SERVER_HOST`           | Bind address (default `127.0.0.1`)     |
+| `SERVER_PORT`           | Bind port (default `8000`)             |
 
 For Postgres you can either set `DATABASE_URL` directly or supply the discrete
 pieces (useful when injecting from a Kubernetes ConfigMap/Secret); if
@@ -42,9 +44,14 @@ indexer once to populate `shows` and `episodes` from S3.
 
 ```
 uv sync
-uv run s3player server  # serves on http://127.0.0.1:8000
-uv run s3player index   # one-shot S3 → Postgres indexer
+uv run s3player server            # serves on http://127.0.0.1:8000
+uv run s3player server --reload   # same, with auto-reload on code changes
+uv run s3player index             # one-shot S3 → Postgres indexer
 ```
+
+`server` binds `$SERVER_HOST:$SERVER_PORT`; `--host` / `--port` override the
+environment. The Docker image defaults `SERVER_HOST=0.0.0.0` so the container
+is reachable, and either variable can be overridden at run time.
 
 API docs at `http://127.0.0.1:8000/docs` (also proxied through the dev server
 at `http://localhost:5173/docs`).
@@ -56,6 +63,16 @@ cd frontend
 bun install             # first time only
 bun run dev             # serves on http://localhost:5173, proxies /api → :8000
 ```
+
+## Releases
+
+Releases are cut manually: bump `version` in `pyproject.toml`, merge to `main`,
+then run the **Release (Manual)** workflow (`.github/workflows/build.yml`) from
+the Actions tab. It derives the tag from `pyproject.toml` (`0.0.1` → `v0.0.1`),
+opens a draft release, builds and pushes multi-arch images to
+`ghcr.io/<owner>/s3player`, then publishes the release — which is what creates
+the git tag. Dispatching from a branch other than `main` marks the release as a
+prerelease and skips the `latest` image tags.
 
 ## Auth
 

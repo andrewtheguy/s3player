@@ -17,6 +17,8 @@ class Settings:
     s3_secret_access_key: str
     database_url: str
     site_password: str
+    server_host: str
+    server_port: int
 
 
 def _resolve_database_url() -> str:
@@ -41,4 +43,6 @@ def get_settings() -> Settings:
         s3_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
         database_url=_resolve_database_url(),
         site_password=os.environ["SITE_PASSWORD"],
+        server_host=os.environ.get("SERVER_HOST") or "127.0.0.1",
+        server_port=int(os.environ.get("SERVER_PORT") or 8000),
     )
