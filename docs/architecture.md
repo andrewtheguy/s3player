@@ -1,116 +1,119 @@
 # Architecture
 
-s3player is a FastAPI app with a JSON API, a built React SPA in production, and a single password gate in front of both. Audio files live in S3; episode metadata, chapters, and per-episode playback state live in Postgres. A separate one-shot CLI walks the bucket and idempotently populates Postgres. This document is a map for new contributors; for runbook-style usage, see the README.
+s3player is a single Rust binary: an axum server with a JSON API, the React SPA embedded at build time, and a single password gate in front of both. Audio files live in S3; episode metadata, chapters, and per-episode playback state live in Postgres. A one-shot `index` subcommand walks the bucket and idempotently populates Postgres. This document is a map for new contributors; for runbook-style usage, see the README.
 
 ## Stack
 
-- **Backend**: Python 3.12, FastAPI, asyncpg, boto3. Chapter info comes from per-episode `.metadata.json` sidecar objects in S3 (no ffprobe / ffmpeg).
+- **Backend**: Rust 2024, axum, sqlx (Postgres, runtime-checked queries), aws-sdk-s3, clap. Chapter info comes from per-episode `.metadata.json` sidecar objects in S3 (no ffprobe / ffmpeg).
 - **Frontend**: React + TypeScript, Vite, TailwindCSS, react-router, Biome.
-- **Storage**: S3-compatible object store for audio; Postgres for everything else.
-- **Tooling**: `uv` for Python, `bun` for JS, `ruff` + `basedpyright` for backend checks, `biome` + `tsc -b` for frontend checks.
+- **Storage**: S3-compatible object store for audio (path-style requests); Postgres for everything else.
+- **Tooling**: `cargo` (clippy with `-D warnings`), `bun` for JS, `biome` + `tsc -b` for frontend checks.
 
 ## Repo Layout
 
 ```
-app/                  Backend Python package: FastAPI app, CLI, config, DB, S3, indexer, routers
+src/                  Rust backend: CLI, server, handlers, indexer
+build.rs              builds and stages the frontend for release builds
 frontend/             Vite React app and frontend tooling
-tests/                pytest suite using TestClient and mocked asyncpg calls
-Dockerfile            multi-stage image build for frontend assets, backend deps, and runtime
-.github/workflows/    CI and container image workflows
+Dockerfile            multi-stage build (binary + runtime images)
+.github/workflows/    CI and release workflows
 ```
 
 ## Backend
 
+### Module layout
+
+| Module | Responsibility |
+| --- | --- |
+| `main.rs` | Loads `.env`, parses the CLI, connects Postgres/S3, dispatches to `server` or `index` |
+| `cli.rs` | clap definitions; every setting is a flag with an env-var fallback (`SERVER_HOST`, `S3_*`, `DATABASE_URL` / `POSTGRES_*`, `SITE_PASSWORD`) |
+| `db.rs` | Pool construction (`DATABASE_URL` or discrete `POSTGRES_*` pieces) and `IF NOT EXISTS` schema bootstrap |
+| `s3.rs` | S3 client construction (timeouts, retries, checksums only when required, path-style), paginated listing, whole-object fetch, error-code helper |
+| `server.rs` | `AppState`, the route table, extractors with JSON 422 rejections, bind + graceful shutdown |
+| `error.rs` | `AppError` → status + `{"detail": "..."}`; 500/502 hide the error chain from clients and log it |
+| `auth.rs` | Token derivation, the site-password gate middleware, `/login` HTML form, `POST /api/auth/login` |
+| `shows.rs` | Browse hierarchy, episode detail, favorites (queries and handlers) |
+| `audio.rs` | Audio stream proxy with `Range` forwarding; presigned URL |
+| `summaries.rs` | Per-chapter summary prefix derivation, listing, concurrent fetch |
+| `player.rs` | Single-session claim/validate, progress writes, recent/in-progress rows |
+| `indexer.rs` | The S3 → Postgres indexer |
+| `show_metadata.rs` | Sidecar parsing: `show.{name,date,start,end}` and chapter normalization |
+| `assets.rs` | Embedded SPA (release) or a pointer to the Vite dev server (dev) |
+
 ### Entry
 
-`app.server:app` is the FastAPI instance. CLI entry `app.cli:main` (registered as the `s3player` script in `pyproject.toml`) dispatches to:
+`s3player server` connects the pool, bootstraps the schema, builds the S3 client, and binds `$SERVER_HOST:$SERVER_PORT`. Missing required settings fail at argument parsing, before anything connects. `s3player index [--overwrite]` runs the indexer once and exits. SIGINT/SIGTERM stop the server gracefully.
 
-- `s3player server` → `app.server.run` (local uvicorn server)
-- `s3player index` → `app.indexer.run` (one-shot, exits when done)
+### Auth gate
 
-The FastAPI lifespan handler opens the asyncpg pool and runs `bootstrap_schema`; there is no separate migration tool. Settings are loaded during server import so missing required environment variables fail fast before the server binds.
+`auth::site_password_gate` is middleware over every route, including the SPA fallback:
 
-### Auth middleware
+- `/login` — always allowed (the internal HTML form).
+- `/api/*` — require either the `s3player_auth` HMAC cookie or an `Authorization: Bearer <token>` header; unauthenticated → 401 `{"detail": "unauthenticated"}`. Exempt: `/api/auth/login`.
+- Everything else (SPA routes and assets) — unauthenticated → 303 redirect to `/login?next=…`.
 
-`site_password_gate` is the single gate:
+The auth token is a deterministic HMAC-SHA256 value keyed by the shared site password over a fixed message. Browsers receive it as a browser-session cookie from the HTML form at `/login`; non-browser clients (mobile apps, CLIs, scripts) obtain the same token by `POST /api/auth/login` with `{"password": "..."}` and present it as a bearer token. There is no per-user identity, and the token does not expire unless `SITE_PASSWORD` rotates. Comparisons are constant-time.
 
-- `/login` — always allowed (handled by `app.routers.auth`).
-- `/api/*` — require either the `s3player_auth` HMAC cookie or an `Authorization: Bearer <token>` header (both verified by `app.auth.is_authenticated`); unauthenticated → 401 JSON. Exempt: `/api/auth/login`.
-- Everything else (SPA routes) — unauthenticated → 303 redirect to `/login?next=…`.
+For standalone native, mobile, desktop, or CLI clients the JSON API is sufficient without CORS: authenticate with `/api/auth/login`, send the bearer token, use the browse/detail/player endpoints for metadata and playback state, and either the proxied audio stream or the presigned audio URL for media.
 
-The auth token is a deterministic HMAC-SHA256 value derived from the shared site password and a fixed authentication message. Browsers receive it as a cookie via the HTML form login at `/login`; non-browser clients (mobile apps, CLIs, scripts) obtain the same token by `POST /api/auth/login` with `{"password": "..."}` and present it as `Authorization: Bearer <token>` on subsequent requests. The cookie settings live with the auth helper code. There is no per-user identity; it is a single shared password, and the token does not expire unless `SITE_PASSWORD` rotates.
+### Public API
 
-For standalone native, mobile, desktop, or CLI clients, the JSON API is sufficient without a CORS requirement: authenticate with `/api/auth/login`, send the bearer token on protected API requests, use the browse/detail/player endpoints for metadata and playback state, and use either the proxied audio stream endpoint or the presigned audio URL endpoint for media fetches.
+`/api/*` is the public API; everything else (`GET`/`POST /login`) is internal. Errors are always `{"detail": "..."}`. Malformed path/query/body values are 422; unknown `/api/*` paths are a JSON 404.
 
-### Public vs internal API surface
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `POST /api/auth/login` | none | `{"password"}` → `{"token"}`; 401 `wrong_password` |
+| `GET /api/shows/stations` | site | Stations with show counts |
+| `GET /api/shows/stations/{station}/shows` | site | Shows of a station with episode counts and favorite flag |
+| `GET /api/shows/favorites` | site | Favorite shows, latest-aired first |
+| `GET /api/shows/{show_id}` | site | Show detail; 404 if missing |
+| `POST`/`DELETE /api/shows/{show_id}/favorite` | site | Idempotent favorite toggle; POST 404s for a missing show |
+| `GET /api/shows/{show_id}/recent-episodes?limit=` | site | Latest episodes (default 20, 1–50) with play state |
+| `GET /api/shows/{show_id}/months` | site | (year, month) buckets with counts |
+| `GET /api/shows/{show_id}/months/{year}/{month}/episodes` | site | Episodes of a month, with chapters |
+| `GET /api/shows/episodes/{episode_id}` | site | Episode detail with chapters and parent show |
+| `GET /api/shows/episodes/{episode_id}/audio` | site | Audio stream proxy (see below) |
+| `GET /api/shows/episodes/{episode_id}/audio_url` | site | Presigned S3 URL (1h) for direct fetch; 502 if presigning fails |
+| `GET /api/shows/episodes/{episode_id}/chapter_summaries` | site | Per-chapter markdown summaries, 1-based `index`; 502 if listing fails |
+| `POST /api/player/session/claim` | site | Issue a new session token, displacing the previous one |
+| `POST /api/player/session/validate` | site + session | 200 while the token owns the session |
+| `GET /api/player/episodes/{episode_id}/progress` | site | Saved position (zeros/false when none) |
+| `POST /api/player/episodes/{episode_id}/progress` | site + session | `{position_ms, duration_ms?, completed?}`; 404 for a missing episode |
+| `DELETE /api/player/episodes/{episode_id}/progress` | site + session | Drop play state (idempotent) |
+| `GET /api/player/recent-completed?limit=` | site | Completed episodes (default 10, 1–50) |
+| `GET /api/player/in-progress?limit=` | site | Resumable episodes (default 10, 1–50) |
 
-The split is by URL prefix:
-
-- **`/api/*` is the public API.** Every route is documented in OpenAPI (`/docs`, `/redoc`, `/openapi.json`) and is supported for third-party clients (mobile, desktop, CLI). New `/api/*` routes go in a topic-specific router (`auth.py`, `shows.py`, `player.py`, or a new public file) and must carry a docstring + `summary`.
-- **Everything else is internal.** Today that is just `GET /login` and `POST /login` — the HTML form and auth cookie creation for browsers. Internal routes live in `app/routers/internal.py`, whose router declares `include_in_schema=False` so they stay out of the OpenAPI document. New internal routes go in `internal.py` and must not use the `/api/` prefix.
-
-### Production route protection
-
-The production Python server enforces authentication in `site_password_gate` before requests reach API routers or the mounted SPA/static files.
-
-**Rule.** All `/api/*` paths require site auth (cookie or bearer), with one exception (`POST /api/auth/login`, which exchanges the password for the bearer token). All `/api/player/*` writes additionally require `X-Player-Session`, with one exception (the claim endpoint that issues the token).
-
-| Auth tier | Paths |
-| --- | --- |
-| **No site auth** | `GET /login`, `POST /login` — internal HTML login form and auth cookie creation for the SPA in browsers; not part of the public API and not documented in OpenAPI. `POST /api/auth/login` — password-to-bearer-token exchange for non-browser clients. |
-| **Site auth only** | All `GET /api/shows/*` (browse hierarchy, episode detail, audio stream proxy, presigned audio URL, chapter summaries). `POST` and `DELETE /api/shows/{id}/favorite` (library actions, not playback state). `GET /api/player/episodes/{id}/progress`, `GET /api/player/recent-completed`, `GET /api/player/in-progress` (read-only playback history). `POST /api/player/session/claim` (issues a new token; cannot require what it produces — it also displaces any previously-issued token). SPA / static routes, `/docs`, `/redoc`, `/openapi.json` (unauthenticated requests redirect to `/login?next=…`). All other authenticated `/api/*` paths return 404. |
-| **Site auth + `X-Player-Session`** | `POST /api/player/session/validate`. `POST /api/player/episodes/{id}/progress` (body `completed: true` marks the episode fully played in the same write). `DELETE /api/player/episodes/{id}/progress` (idempotent; used by the home page X button to dismiss a Continue-listening entry — only the currently-active player may dismiss). |
-
-Site-auth-protected API routes accept either the `s3player_auth` cookie or `Authorization: Bearer <token>`. Player-session-token routes additionally require `X-Player-Session`; missing tokens return `401 {"detail": "missing session token"}`, and stale/displaced tokens return `409 {"detail": "session displaced"}`.
-
-### Routers
-
-Routers live under `app/routers/` and are split by visibility: one internal router holds every non-public route, and the rest are public, topic-specific routers. Postgres-backed request handlers get a connection with the shared `app.db.get_conn` dependency, which acquires from the global pool and releases on request end.
-
-| Router | Prefix | Visibility | Purpose |
-| --- | --- | --- | --- |
-| `internal.py` | (none) | Internal | HTML `/login` form and auth cookie creation. Router-level `include_in_schema=False`. |
-| `auth.py` | `/api/auth` | Public | `POST /api/auth/login` — site-password-to-bearer-token exchange for non-browser clients. |
-| `shows.py` | `/api/shows` | Public | HTTP adapter for browse hierarchy, episode detail, audio stream proxy, presigned audio URL, and per-chapter summary endpoints. Catalog queries live in `app.catalog`; audio presign/stream logic lives in `app.audio`; summary listing/fetching lives in `app.summaries`. |
-| `player.py` | `/api/player` | Public | HTTP adapter for session claim/validate, progress save (which also carries the `completed` flag), recent, and in-progress endpoints. Player session/state rules live in `app.player_state`. |
+"Session" routes require `X-Player-Session`: missing → 401 `{"detail": "missing session token"}`, displaced → 409 `{"detail": "session displaced"}`.
 
 ### Audio stream proxy
 
-`GET /api/shows/episodes/{episode_id}/audio` is the backend audio proxy. It resolves the episode id to an S3 key, forwards the client's `Range` header to S3 when present, streams the S3 body back as `audio/mp4`, and includes `Accept-Ranges`, `Content-Length`, and `Content-Range` headers when S3 returns them. The route returns `206` only when S3 returns `ContentRange`; otherwise it returns `200`.
-
-`GET /api/shows/episodes/{episode_id}/audio_url` is the direct-fetch alternative. It returns a presigned S3 URL plus its expiry for clients that do not need the backend to proxy media bytes.
-
-Supporting modules outside `app/routers/` hold reusable application logic:
-
-- `app.catalog` — station/show/month/episode read queries and row mapping.
-- `app.audio` — presigned audio URLs, S3 range forwarding, stream-body cleanup, and S3 audio error normalization.
-- `app.summaries` — per-chapter markdown summary prefix derivation, S3 listing, and concurrent body fetches.
-- `app.player_state` — single-session claim/displacement, progress writes, completion, and recent/in-progress queries.
+`GET /api/shows/episodes/{episode_id}/audio` resolves the episode id to an S3 key, forwards the client's `Range` header to S3 when present, and streams the S3 body back in 64 KiB chunks. `Content-Type` comes from the key extension (`.m4a` → `audio/mp4`, `.ogg` → `audio/ogg`); `Accept-Ranges`, `Content-Length`, and `Content-Range` are passed through. It returns `206` only when S3 returns `Content-Range`, otherwise `200`; 404 for a missing episode or object, 416 for an unsatisfiable range, 502 for other upstream failures. If the upstream body breaks mid-stream the response is aborted and the failure logged.
 
 ### Database
 
-The backend uses one lazily-created asyncpg pool. A jsonb codec is registered per connection so chapters round-trip as native Python data. `app.db.get_conn` is the FastAPI dependency used by Postgres-backed routers.
+One sqlx pool (max 5 connections). Queries are plain runtime-checked SQL mapped with `FromRow`; chapters round-trip as `JSONB` via `sqlx::types::Json`.
 
-Schema is created by `bootstrap_schema` using `IF NOT EXISTS` statements:
+Schema is created at startup by `db::connect` using `IF NOT EXISTS` statements:
 
 - **`shows`** — station/name records, unique by station and show name.
 - **`episodes`** — S3 key, show, air date, optional chapters, time slot, and a soft-delete flag. The indexer toggles the flag when keys disappear from or reappear in S3.
 - **`player_session`** — the single currently-active player session, including its token, claim time, and last heartbeat. It is global and not scoped to an episode.
 - **`episode_play_state`** — per-episode playback position, duration, last-played timestamp, and completion state.
+- **`favorite_shows`** — favorited show ids with the time they were favorited.
 
 ### Indexer
 
-`app.indexer.run` is invoked by the CLI:
+`indexer::run`:
 
-1. Open the pool, bootstrap schema.
-2. For each configured station prefix, paginate `ListObjectsV2` and split the listing into the set of audio keys (`.m4a` and `.ogg`) and the list of `.metadata.json` sidecar keys.
+1. List `shows/` with delimiter `/` to discover station prefixes.
+2. For each station prefix, list every key and split the listing into the set of audio keys (`.m4a` and `.ogg`) and the list of `.metadata.json` sidecar keys.
 3. For each sidecar, derive `audio_key` by stripping `.metadata.json`. Skip if the audio key is not in the listed set (sidecar without audio file).
-4. `GetObject` the sidecar and parse it as JSON. `app.show_metadata.extract_show_metadata` reads the `show.{name, date, start, end}` fields and returns a `ShowMetadata` (name, `aired_on`, `time_slot`) or a `ShowMetadataError`. Sidecars whose `show.date` is missing are skipped at INFO; structurally invalid sidecars (missing `show` object, missing/empty name, malformed date) are skipped at WARNING. `time_slot` is `HHMM_HHMM` when both `show.start` and `show.end` parse, otherwise NULL.
-5. Upsert `shows` (keyed on station + name), then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes`. Newly-inserted rows return their id.
-6. For each new episode, run `app.chapters.normalize_chapters` over the same sidecar dict's `chapters` array (using `start_ms_in_show` / `end_ms_in_show` / `title`) and update `episodes.chapters` — no second S3 fetch.
-7. Soft-delete any `episodes.s3_key` not seen in this run; restore any previously-deleted key that reappeared.
+4. Fetch the sidecar and parse it as a JSON object. `show_metadata::extract_show_metadata` reads `show.{name, date, start, end}` into a `ShowMetadata` (name, `aired_on`, `time_slot`) or a `ShowMetadataError`. Sidecars whose `show.date` is missing are skipped at INFO; structurally invalid sidecars (missing `show` object, missing/empty name, malformed date) are skipped at WARN. `time_slot` is `HHMM_HHMM` when both `show.start` and `show.end` are `HH:MM`, otherwise NULL.
+5. Upsert `shows` (keyed on station + name, cached per run), then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes` (`--overwrite`: `DO UPDATE` of show, date, and time slot).
+6. For each written episode, `normalize_chapters` runs over the same sidecar's `chapters` array (`start_ms_in_show` / `end_ms_in_show` / `title`) and sets `episodes.chapters` — no second S3 fetch. An overwritten episode whose sidecar has no chapter list gets its chapters cleared.
+7. Soft-delete any `episodes.s3_key` not seen in this run — skipped if any sidecar fetch failed or no station was found; restore any previously-deleted key that reappeared.
 
-The sidecar contract (canonical writer: upstream `extract_shows_rthk`; documented in `tmp/radio_show_tools/docs/show_sidecar.md`) is the only metadata source — the S3 key is treated purely as the audio path, not parsed for show name or air time.
+The sidecar contract (canonical writer: upstream `extract_shows_rthk`; documented in `radio_show_tools/docs/show_sidecar.md`) is the only metadata source — the S3 key is treated purely as the audio path, not parsed for show name or air time.
 
 The indexer is safe to re-run: every write is an upsert or a conditional update.
 
@@ -130,7 +133,7 @@ The indexer is safe to re-run: every write is an upsert or a conditional update.
 /player/:episode_id            → PlayerPage
 ```
 
-In production the SPA is served by `SPAStaticFiles`, which catches 404s on static file lookups and replays them against `index.html`. That is how deep links survive a hard refresh.
+In release builds the SPA is embedded in the binary and served by `assets::static_handler`, which answers any path that is not a bundled file with `index.html`. That is how deep links survive a hard refresh.
 
 ### Data layer
 
@@ -146,7 +149,7 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 
 ### Build / dev
 
-`frontend/vite.config.ts` proxies API, login, and OpenAPI docs paths to the backend dev server so Vite and FastAPI work as one origin from the browser's perspective. In Docker / production, the backend serves the built dist directly and there is no proxy.
+`frontend/vite.config.ts` proxies `/api` and `/login` to the backend dev server so Vite and the Rust server work as one origin from the browser's perspective. Dev builds of the binary embed no UI. Release builds run `bun run build` from `build.rs` into Cargo's `OUT_DIR` (`S3PLAYER_FRONTEND_OUT_DIR`), compile it in with `rust-embed`, and need no proxy.
 
 ## Key flows
 
@@ -154,7 +157,7 @@ In production the SPA is served by `SPAStaticFiles`, which catches 404s on stati
 
 ```
 s3player index
-  → asyncpg pool + bootstrap_schema
+  → sqlx pool + bootstrap_schema
   → S3 ListObjectsV2 (paginated) per station prefix
   → split listing into audio set (.m4a, .ogg) and .metadata.json sidecars
   → for each sidecar with a matching audio file:
@@ -193,21 +196,16 @@ The two filters are mutually exclusive, so an episode should not appear in both.
 
 ## Tests
 
-`tests/` is pure unit-level: `pytest` + FastAPI `TestClient` + an `AsyncMock` injected as the `get_conn` dependency. `tests/conftest.py` pre-sets the env vars `app.config` requires, so importing the app under test never hits a real DB or S3. There are no integration tests against a real Postgres or bucket — DB rows are mocked at the asyncpg surface (`fetch`, `fetchrow`, `fetchval`, `execute`).
+`cargo test` runs unit tests beside the code; they need no services:
 
-Current coverage includes:
+- Pure functions: sidecar parsing and chapter normalization (`show_metadata.rs`), summary prefix and chapter-file parsing (`summaries.rs`), month ranges (`shows.rs`), token/`next` helpers (`auth.rs`), `positive_id`/`limit_param` (`server.rs`), error rendering (`error.rs`), CLI parsing (`cli.rs`), `DATABASE_URL` vs `POSTGRES_*` resolution (`db.rs`).
+- S3 logic against `aws-smithy-mocks` clients: listing pagination and fetches (`s3.rs`), station discovery and sidecar decoding (`indexer.rs`), the audio proxy's 200/206 headers and S3-error → 404/416/502 mapping plus presigning (`audio.rs`), summaries (`summaries.rs`).
+- Router tests through `tower::ServiceExt::oneshot` with a lazy, never-connecting pool (`test_support.rs`): login form and cookie flow, bearer/cookie auth, 401/redirect behaviour, validation 422s, missing session tokens.
 
-- `test_shows_router.py` — browse hierarchy, audio range requests (206/416).
-- `test_auth_router.py` — HTML login cookie flow, token login, bearer auth, and API auth failures.
-- `test_player_router.py` — session claim/validate, displacement handling, progress writes, completion writes, and progress defaults.
-- `test_show_metadata.py`, `test_chapters.py` — pure-function unit tests for the indexer's sidecar parsing helpers.
+`tests/e2e.rs` is the end-to-end suite: it runs the real `s3player` binary (`index` and `server`) against a [Silo](https://github.com/pgsty/silo) S3 server (a MinIO fork) and Postgres, seeding objects with the S3 SDK and asserting over HTTP and SQL. It covers the indexer (skips, overwrite, soft-delete/restore, via its `done:` stats line), every API route, auth flows, audio ranges and presigned URLs, chapter summaries, the player session, `POSTGRES_*` settings, and SIGTERM shutdown. Each test makes its own bucket and database, so tests run in parallel. The tests are `#[ignore]`d; `scripts/e2e.sh` downloads Silo (checksum-pinned, into `tmp/tools`), starts it and a `postgres:17-alpine` container (podman or docker, or an existing server via `S3PLAYER_E2E_DATABASE_URL`), runs them, and tears everything down. `scripts/e2e.sh --coverage` runs unit and e2e tests under `cargo-llvm-cov` for one combined report (`tmp/coverage/`).
 
 ## Deployment
 
-The Dockerfile is a three-stage build:
+The Dockerfile builds the release binary (frontend embedded) in a Rust image with Bun, then copies it into a `debian:trixie-slim` runtime with `tini`. `ENTRYPOINT` is `tini --` and `CMD` is `s3player server`, with `SERVER_HOST=0.0.0.0`. The `runtime-prebuilt` target wraps a binary built outside Docker (used by the release workflow); the `export` target extracts binaries (`docker-bake.hcl`, `build-docker.sh`).
 
-1. **frontend-builder**: installs frontend dependencies and builds `frontend/dist/`.
-2. **backend-builder**: installs Python dependencies into the runtime environment.
-3. **runtime**: copies installed Python packages, console scripts, the `app/` source, and built frontend assets. The container entrypoint runs `uvicorn app.server:app`.
-
-CI (`.github/workflows/`) runs the same backend and frontend checks listed in `CLAUDE.md`, plus pytest and a CLI entry-point smoke test. The container workflow builds and publishes multi-arch images for releases or manual dispatches. There is no automated indexer run; `s3player index` is invoked manually or by an out-of-band scheduler when new files land in S3.
+CI (`.github/workflows/ci.yml`) runs clippy, unit tests, a CLI smoke test, the e2e suite (`scripts/e2e.sh` with a Postgres service container), and the frontend lint/typecheck/build. The release workflow (`release.yml`) builds the frontend once, embeds it into Linux and macOS binaries via `S3PLAYER_PREBUILT_FRONTEND`, publishes a GitHub release, and pushes multi-arch images. There is no automated indexer run; `s3player index` is invoked manually or by an out-of-band scheduler when new files land in S3.

@@ -15,32 +15,58 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
+
+      - name: Lint (clippy)
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: CLI smoke test
+        run: cargo run --locked -- --help
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
+
+      - name: Cache Silo
+        uses: actions/cache@v4
         with:
-          version: '0.11.8'
-          enable-cache: true
+          path: tmp/tools
+          key: silo-${{ runner.arch }}-${{ hashFiles('scripts/e2e.sh') }}
 
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Sync dependencies
-        run: uv sync --locked
-
-      - name: Lint (ruff)
-        run: uv run ruff check
-
-      - name: Format check (ruff)
-        run: uv run ruff format --check
-
-      - name: Type check (basedpyright)
-        run: uv run basedpyright
-
-      - name: Test (pytest)
-        run: uv run pytest -v
-
-      - name: CLI entry point smoke test
-        run: uv run s3player --help
+      - name: End-to-end tests (Silo S3 + Postgres)
+        env:
+          S3PLAYER_E2E_DATABASE_URL: postgres://postgres:e2e@127.0.0.1:5432/postgres
+        run: ./scripts/e2e.sh
 
   frontend:
     runs-on: ubuntu-latest
@@ -62,3 +88,6 @@ jobs:
 
       - name: Type check (tsc)
         run: bun run typecheck
+
+      - name: Build
+        run: bun run build
