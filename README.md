@@ -8,9 +8,12 @@ returning later resumes where you left off. Only one tab/device can be in
 active player mode at a time — opening a new player displaces the previous
 one.
 
+It ships as a single Rust binary with the React frontend embedded.
+
 ## Configuration
 
-Backend reads from environment (a `.env` at the repo root works):
+Every setting is read from the environment (a `.env` in the working directory
+works) or the matching command-line flag (`s3player server --help`):
 
 | Variable                | Purpose                                |
 | ----------------------- | -------------------------------------- |
@@ -20,14 +23,16 @@ Backend reads from environment (a `.env` at the repo root works):
 | `S3_ACCESS_KEY_ID`      | S3 access key                          |
 | `S3_SECRET_ACCESS_KEY`  | S3 secret key                          |
 | `DATABASE_URL`          | Postgres URL (`postgres://…`)          |
-| `SITE_PASSWORD`         | Single password protecting the app     |
+| `SITE_PASSWORD`         | Single password protecting the app (`server` only) |
 | `SERVER_HOST`           | Bind address (default `127.0.0.1`)     |
 | `SERVER_PORT`           | Bind port (default `8000`)             |
+| `RUST_LOG`              | Log filter (default `info`)            |
+
+S3 requests use path-style addressing.
 
 For Postgres you can either set `DATABASE_URL` directly or supply the discrete
 pieces (useful when injecting from a Kubernetes ConfigMap/Secret); if
-`DATABASE_URL` is unset, all five of the following are required and a DSN is
-built from them:
+`DATABASE_URL` is unset or empty, all five of the following are required:
 
 | Variable            | Purpose                       |
 | ------------------- | ----------------------------- |
@@ -37,48 +42,57 @@ built from them:
 | `POSTGRES_PASSWORD` | Postgres password             |
 | `POSTGRES_DATABASE` | Postgres database name        |
 
-The server creates its tables on startup; no separate migration step. Run the
-indexer once to populate `shows` and `episodes` from S3.
+Both subcommands create the tables on startup; there is no separate migration
+step. Run the indexer to populate `shows` and `episodes` from S3.
 
-## Backend
-
-```
-uv sync
-uv run s3player server            # serves on http://127.0.0.1:8000
-uv run s3player server --reload   # same, with auto-reload on code changes
-uv run s3player index             # one-shot S3 → Postgres indexer
-```
-
-`server` binds `$SERVER_HOST:$SERVER_PORT`; `--host` / `--port` override the
-environment. The Docker image defaults `SERVER_HOST=0.0.0.0` so the container
-is reachable, and either variable can be overridden at run time.
-
-API docs at `http://127.0.0.1:8000/docs` (also proxied through the dev server
-at `http://localhost:5173/docs`).
-
-## Frontend
+## Usage
 
 ```
-cd frontend
-bun install             # first time only
-bun run dev             # serves on http://localhost:5173, proxies /api → :8000
+s3player server                 # serves on http://127.0.0.1:8000
+s3player index                  # one-shot S3 → Postgres indexer
+s3player index --overwrite      # also rewrite already-indexed episodes from their sidecars
 ```
+
+The Docker image defaults `SERVER_HOST=0.0.0.0` so the container is reachable;
+its command is `s3player server`, overridable at run time (e.g. `s3player index`).
+
+## Development
+
+Requires Rust, [Bun](https://bun.sh), and `clang` + `mold` (see
+`.cargo/config.toml`).
+
+```
+cd frontend && bun install      # first time only
+cargo run -- server             # backend on :8000
+cd frontend && bun run dev      # UI on http://localhost:5173, proxies /api and /login → :8000
+```
+
+Dev builds do not embed the UI; open the Vite dev server instead. `cargo build
+--release` runs `bun run build` from `build.rs` and embeds the result
+(`S3PLAYER_EMBED_FRONTEND=1` forces that in a dev build;
+`S3PLAYER_PREBUILT_FRONTEND=<dir>` embeds an already-built bundle).
+
+Checks: `cargo clippy --all-targets -- -D warnings`, `cargo test`, and in
+`frontend/` `bun run lint` and `bun run typecheck`.
 
 ## Releases
 
-Releases are cut manually: bump `version` in `pyproject.toml`, merge to `main`,
-then run the **Release (Manual)** workflow (`.github/workflows/build.yml`) from
-the Actions tab. It derives the tag from `pyproject.toml` (`0.0.1` → `v0.0.1`),
-opens a draft release, builds and pushes multi-arch images to
-`ghcr.io/<owner>/s3player`, then publishes the release — which is what creates
-the git tag. Dispatching from a branch other than `main` marks the release as a
-prerelease and skips the `latest` image tags.
+Releases are cut manually: bump `version` in `Cargo.toml`, merge to `main`,
+then run the **Release** workflow (`.github/workflows/release.yml`) from the
+Actions tab. It derives the tag from `Cargo.toml` (`0.0.1` → `v0.0.1`), builds
+the frontend once, builds Linux (x86_64, arm64) and macOS (arm64) binaries,
+publishes them as a GitHub release, and pushes multi-arch images to
+`ghcr.io/andrewtheguy/s3player`. Dispatching from a branch other than `main`
+marks the release as a prerelease and skips the `latest` image tag.
+
+`./build-docker.sh` builds both Linux binaries locally via Docker into `tmp/`.
 
 ## Auth
 
 Visit `/login` and enter `SITE_PASSWORD`. An HMAC token is set as the
 `s3player_auth` httponly browser-session cookie. All `/api/*` endpoints except
-`/api/auth/login` require the cookie; UI routes redirect to `/login?next=…`
+`/api/auth/login` require the cookie (or `Authorization: Bearer <token>`, with
+the token from `POST /api/auth/login`); UI routes redirect to `/login?next=…`
 and the SPA redirects there automatically on a 401.
 
 ## Player behaviour

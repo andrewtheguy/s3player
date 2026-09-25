@@ -2,26 +2,24 @@
 
 No backward compatibility or migration path for simplicity because it is a private and internal project.
 
-use `uv` to run all python commands
-
 ## Project layout
 
-- Backend: FastAPI app at repo root (`app/`, entrypoint `app.server:app`, CLI dispatcher `app.cli:main` exposed as `s3player` with `server` and `index` subcommands).
+- Backend: Rust (axum + sqlx + aws-sdk-s3) at the repo root (`src/`), one binary `s3player` with `server` and `index` subcommands. Release builds embed the frontend (`build.rs` → `src/assets.rs`).
 - Frontend: Vite + React + TypeScript in `frontend/`. Package manager: `bun`.
+- Architectural doc is in `docs/architecture.md`.
 
 ## Validation commands
 
-Run these before reporting a task complete. All four must exit clean.
+Run these before reporting a task complete. All must exit clean.
 
 ### Backend (run from repo root)
 
 ```
-uv run ruff check          # lint
-uv run ruff format --check # format check (use `uv run ruff format` to apply)
-uv run basedpyright        # type check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-To auto-fix lint issues: `uv run ruff check --fix`.
+No `cargo fmt`.
 
 ### Frontend (run from `frontend/`)
 
@@ -37,12 +35,13 @@ To auto-fix lint/format/import issues: `bun run lint:fix`.
 Don't run by default, but if you do need to run, use these commands from the repo root:
 
 ```
-uv run s3player server                # backend on :8000
-uv run s3player index                 # one-shot S3 → Postgres indexer (no server)
-cd frontend && bun run dev            # frontend on :5173 (proxies /api → :8000)
+cargo run -- server                   # backend on :8000 (dev builds don't embed the UI)
+cargo run -- index                    # one-shot S3 → Postgres indexer (no server)
+cd frontend && bun run dev            # frontend on :5173 (proxies /api and /login → :8000)
 ```
 
 ## Conventions
 
-- Python target: 3.12.
-- Configs live in `pyproject.toml` (`[tool.ruff]`, `[tool.basedpyright]`) and `frontend/biome.json`.
+- Error handling: `anyhow` for application errors (main, indexer, S3 helpers), `thiserror` for the typed API error (`AppError` in `src/error.rs`), which always renders `{"detail": "..."}`; internal/upstream errors return a generic detail to clients and log the chain.
+- Use the async Rust APIs by default.
+- Use `tmp/` for temporary files (gitignored).

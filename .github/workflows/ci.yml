@@ -15,32 +15,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.11.8'
-          enable-cache: true
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
 
-      - name: Set up Python
-        run: uv python install 3.12
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang mold
 
-      - name: Sync dependencies
-        run: uv sync --locked
+      - name: Lint (clippy)
+        run: cargo clippy --locked --all-targets -- -D warnings
 
-      - name: Lint (ruff)
-        run: uv run ruff check
+      - name: Test
+        run: cargo test --locked
 
-      - name: Format check (ruff)
-        run: uv run ruff format --check
-
-      - name: Type check (basedpyright)
-        run: uv run basedpyright
-
-      - name: Test (pytest)
-        run: uv run pytest -v
-
-      - name: CLI entry point smoke test
-        run: uv run s3player --help
+      - name: CLI smoke test
+        run: cargo run --locked -- --help
 
   frontend:
     runs-on: ubuntu-latest
@@ -62,3 +52,6 @@ jobs:
 
       - name: Type check (tsc)
         run: bun run typecheck
+
+      - name: Build
+        run: bun run build

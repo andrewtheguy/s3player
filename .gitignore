@@ -1,13 +1,5 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
+/target
+tmp/
 
 # Node / frontend
 node_modules/
@@ -17,4 +9,4 @@ frontend/dist/
 .env
 .env.local
 
-tmp/
+.idea/

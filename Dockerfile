@@ -1,48 +1,75 @@
-# --- Frontend builder: bun + vite -> /build/frontend/dist ---
-FROM oven/bun:1.3-alpine AS frontend-builder
-WORKDIR /build/frontend
+# Build stage
+FROM rust:1.91-slim-trixie AS builder
+ARG TARGETARCH
 
-COPY frontend/package.json frontend/bun.lock ./
-RUN bun install --frozen-lockfile
+# Install build dependencies and bun
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    clang \
+    mold \
+    pkg-config \
+    curl \
+    unzip \
+    && curl -fsSL https://bun.sh/install | bash \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY frontend/ ./
-RUN bun run build
+ENV PATH="/root/.bun/bin:${PATH}"
 
-# --- Backend builder: install Python deps into /usr/local/ ---
-FROM python:3.12-slim-trixie AS backend-builder
+WORKDIR /build
 
-RUN apt-get -yqq update && \
-    apt-get install -yq --no-install-recommends ca-certificates && \
-    apt-get clean -y && rm -rf /var/lib/apt/lists/*
+COPY . .
 
-WORKDIR /usr/src/app
-COPY pyproject.toml uv.lock README.md ./
-COPY app ./app
+RUN cd frontend && bun install --frozen-lockfile
 
-ENV UV_PROJECT_ENVIRONMENT=/usr/local/
-RUN --mount=from=ghcr.io/astral-sh/uv:0.11.8,source=/uv,target=/uv \
-    /uv sync --locked --no-dev
+# Build the release binary (build.rs builds and embeds the frontend) with architecture-specific cache mounts
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-v2-${TARGETARCH} \
+    --mount=type=cache,target=/build/target,id=cargo-target-v2-${TARGETARCH} \
+    cargo build --release --locked && \
+    cp target/release/s3player /s3player
 
-# --- Runtime: minimal image with backend + built frontend ---
-FROM python:3.12-slim-trixie
+# Export stage - for extracting standalone binaries (used by docker-bake.hcl)
+FROM scratch AS export
+COPY --from=builder /s3player /s3player
 
-RUN apt-get -yqq update && \
-    apt-get install -yq --no-install-recommends ca-certificates tini && \
-    apt-get clean -y && rm -rf /var/lib/apt/lists/*
+# Runtime stage - minimal image for container deployment (builds from source)
+FROM debian:trixie-slim AS runtime
 
-COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=backend-builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
-COPY --from=backend-builder /usr/local/bin/s3player /usr/local/bin/s3player
+LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/s3player
 
-WORKDIR /usr/src/app
-COPY app ./app
-COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /s3player /usr/local/bin/s3player
 
 # Containers need to listen on all interfaces by default; both are overridable
-# at run time (env or `--host`/`--port` on the CMD).
+# at run time (env or `--host`/`--port`).
 ENV SERVER_HOST=0.0.0.0 \
     SERVER_PORT=8000
 
 EXPOSE 8000
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["s3player", "server"]
+
+# Runtime stage for pre-built binary (used by CI to avoid double build)
+FROM debian:trixie-slim AS runtime-prebuilt
+
+LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/s3player
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Binary must be passed via build context
+COPY s3player /usr/local/bin/s3player
+
+ENV SERVER_HOST=0.0.0.0 \
+    SERVER_PORT=8000
+
+EXPOSE 8000
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["s3player", "server"]
