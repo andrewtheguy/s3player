@@ -111,6 +111,8 @@ mod tests {
             (AppError::NotFound("show not found"), StatusCode::NOT_FOUND, "show not found"),
             (AppError::Conflict("session displaced"), StatusCode::CONFLICT, "session displaced"),
             (AppError::RangeNotSatisfiable, StatusCode::RANGE_NOT_SATISFIABLE, "range not satisfiable"),
+            (AppError::Unauthorized("unauthenticated"), StatusCode::UNAUTHORIZED, "unauthenticated"),
+            (AppError::unprocessable("bad limit"), StatusCode::UNPROCESSABLE_ENTITY, "bad limit"),
         ];
         for (error, expected_status, expected_detail) in cases {
             let (status, body) = response_parts(error).await;
@@ -125,5 +127,10 @@ mod tests {
             response_parts(AppError::Internal(anyhow::anyhow!("database password leaked"))).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body, serde_json::json!({ "detail": "internal server error" }));
+
+        let (status, body) =
+            response_parts(AppError::BadGateway(anyhow::anyhow!("s3 secret in error"))).await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(body, serde_json::json!({ "detail": "upstream error" }));
     }
 }

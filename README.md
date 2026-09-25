@@ -75,6 +75,20 @@ Dev builds do not embed the UI; open the Vite dev server instead. `cargo build
 Checks: `cargo clippy --all-targets -- -D warnings`, `cargo test`, and in
 `frontend/` `bun run lint` and `bun run typecheck`.
 
+End-to-end tests (`tests/e2e.rs`) run the real binary against a
+[Silo](https://github.com/pgsty/silo) S3 server and Postgres:
+
+```
+./scripts/e2e.sh                # needs podman or docker for Postgres
+./scripts/e2e.sh player         # only tests matching "player"
+./scripts/e2e.sh --coverage     # unit + e2e coverage report (cargo-llvm-cov)
+```
+
+The script downloads Silo into `tmp/tools`, starts it and a throwaway
+Postgres container, and tears both down afterwards. Set
+`S3PLAYER_E2E_DATABASE_URL` to use an existing Postgres instead (its user
+must be able to create databases).
+
 ## Releases
 
 Releases are cut manually: bump `version` in `Cargo.toml`, merge to `main`,

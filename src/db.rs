@@ -93,3 +93,52 @@ async fn bootstrap_schema(pool: &PgPool) -> anyhow::Result<()> {
     tx.commit().await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(database_url: Option<&str>, pieces: bool) -> DbArgs {
+        DbArgs {
+            database_url: database_url.map(str::to_string),
+            postgres_host: pieces.then(|| "db.internal".to_string()),
+            postgres_port: pieces.then_some(6543),
+            postgres_user: pieces.then(|| "player".to_string()),
+            postgres_password: pieces.then(|| "secret".to_string()),
+            postgres_database: pieces.then(|| "radio".to_string()),
+        }
+    }
+
+    #[test]
+    fn database_url_wins_over_pieces() {
+        let options = args(Some("postgres://u:p@url-host:5433/urldb"), true)
+            .connect_options()
+            .unwrap();
+        assert_eq!(options.get_host(), "url-host");
+        assert_eq!(options.get_port(), 5433);
+        assert_eq!(options.get_username(), "u");
+        assert_eq!(options.get_database(), Some("urldb"));
+    }
+
+    #[test]
+    fn empty_database_url_falls_back_to_pieces() {
+        for url in [None, Some("")] {
+            let options = args(url, true).connect_options().unwrap();
+            assert_eq!(options.get_host(), "db.internal");
+            assert_eq!(options.get_port(), 6543);
+            assert_eq!(options.get_username(), "player");
+            assert_eq!(options.get_database(), Some("radio"));
+        }
+    }
+
+    #[test]
+    fn missing_or_invalid_settings_are_errors() {
+        let error = args(Some(""), false).connect_options().unwrap_err().to_string();
+        assert!(error.starts_with("set DATABASE_URL or all of"), "{error}");
+        let mut partial = args(None, true);
+        partial.postgres_password = None;
+        assert!(partial.connect_options().is_err());
+        let error = args(Some("not a url"), false).connect_options().unwrap_err().to_string();
+        assert_eq!(error, "invalid DATABASE_URL");
+    }
+}

@@ -21,6 +21,14 @@ cargo test
 
 No `cargo fmt`.
 
+When a change touches the indexer, SQL, S3 access, or HTTP behaviour, also run
+the end-to-end suite (real binary against Silo S3 + Postgres; needs podman or
+docker):
+
+```
+./scripts/e2e.sh
+```
+
 ### Frontend (run from `frontend/`)
 
 ```

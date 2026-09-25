@@ -153,3 +153,25 @@ async fn shutdown_signal() {
     }
     info!("shutting down");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn positive_id_rejects_zero_and_negatives() {
+        assert_eq!(positive_id(1).unwrap(), 1);
+        assert!(matches!(positive_id(0), Err(AppError::Unprocessable(_))));
+        assert!(matches!(positive_id(-5), Err(AppError::Unprocessable(_))));
+    }
+
+    #[test]
+    fn limit_param_defaults_and_bounds() {
+        assert_eq!(limit_param(None, 20).unwrap(), 20);
+        assert_eq!(limit_param(Some(1), 20).unwrap(), 1);
+        assert_eq!(limit_param(Some(50), 20).unwrap(), 50);
+        for bad in [0, 51, -1] {
+            assert!(limit_param(Some(bad), 20).is_err(), "{bad}");
+        }
+    }
+}

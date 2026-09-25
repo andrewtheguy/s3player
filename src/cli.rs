@@ -106,4 +106,55 @@ mod tests {
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
     }
+
+    const S3_FLAGS: &[&str] = &[
+        "--s3-endpoint=http://s3",
+        "--s3-bucket=b",
+        "--s3-region=r",
+        "--s3-access-key-id=k",
+        "--s3-secret-access-key=s",
+    ];
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(["s3player"].iter().chain(args).chain(S3_FLAGS))
+    }
+
+    #[test]
+    fn server_flags() {
+        let cli = parse(&[
+            "server",
+            "--host=0.0.0.0",
+            "--port=9001",
+            "--site-password=pw",
+            "--database-url=postgres://x",
+        ])
+        .unwrap();
+        let Commands::Server(args) = cli.command else {
+            panic!("expected server");
+        };
+        assert_eq!((args.host.as_str(), args.port, args.site_password.as_str()), ("0.0.0.0", 9001, "pw"));
+        assert_eq!(args.s3.s3_endpoint, "http://s3");
+        assert_eq!(args.s3.s3_bucket, "b");
+        assert_eq!(args.db.database_url.as_deref(), Some("postgres://x"));
+        assert!(parse(&["server", "--port=nope", "--site-password=pw", "--database-url=x"]).is_err());
+    }
+
+    #[test]
+    fn index_flags_and_postgres_pieces() {
+        let pieces = [
+            "--postgres-host=h",
+            "--postgres-port=5432",
+            "--postgres-user=u",
+            "--postgres-password=p",
+            "--postgres-database=d",
+        ];
+        let args: Vec<&str> = ["index", "--overwrite"].into_iter().chain(pieces).collect();
+        let Commands::Index(args) = parse(&args).unwrap().command else {
+            panic!("expected index");
+        };
+        assert!(args.overwrite);
+        assert_eq!(args.db.database_url, None);
+        assert_eq!(args.db.postgres_port, Some(5432));
+        assert_eq!(args.db.postgres_database.as_deref(), Some("d"));
+    }
 }

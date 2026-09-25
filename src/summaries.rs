@@ -52,7 +52,7 @@ pub async fn fetch_chapter_summaries(s3: &S3, audio_key: &str) -> anyhow::Result
     let keys = match s3.list_keys(&prefix).await {
         Ok(keys) => keys,
         Err(e) => {
-            if matches!(error_code(&e).as_deref(), Some("NoSuchKey" | "NoSuchBucket" | "404")) {
+            if matches!(error_code(&e).as_deref(), Some("NoSuchKey" | "NoSuchBucket" | "NotFound" | "404")) {
                 return Ok(Vec::new());
             }
             anyhow::bail!("ListObjectsV2 {prefix}: {}", DisplayErrorContext(e));
@@ -197,6 +197,19 @@ mod tests {
             });
         let s3 = S3 {
             client: mock_client!(aws_sdk_s3, [&missing]),
+            bucket: "b".to_string(),
+        };
+        assert_eq!(fetch_chapter_summaries(&s3, "shows/r/y.m4a").await.unwrap(), vec![]);
+
+        // A bodyless 404, which the SDK codes as "NotFound".
+        let bare_404 = mock!(aws_sdk_s3::Client::list_objects_v2).then_http_response(|| {
+            aws_sdk_s3::config::http::HttpResponse::new(
+                404.try_into().unwrap(),
+                aws_sdk_s3::primitives::SdkBody::empty(),
+            )
+        });
+        let s3 = S3 {
+            client: mock_client!(aws_sdk_s3, [&bare_404]),
             bucket: "b".to_string(),
         };
         assert_eq!(fetch_chapter_summaries(&s3, "shows/r/y.m4a").await.unwrap(), vec![]);

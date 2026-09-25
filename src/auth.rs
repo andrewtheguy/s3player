@@ -325,6 +325,55 @@ mod tests {
         assert_eq!(response.headers()[header::LOCATION], "/login?next=%2Fplayer%2F3%3Ft%3D1");
     }
 
+    #[tokio::test]
+    async fn login_page_is_public_and_escapes_next() {
+        for (query, expected) in [
+            ("?next=%2Fplayer%2F3%3Fa%3D1%26b%3D%22", r#"value="/player/3?a=1&amp;b=&quot;""#),
+            ("?next=%2F%2Fevil.example", r#"value="/""#),
+            ("", r#"value="/""#),
+        ] {
+            let app = crate::server::router(test_state());
+            let response = app
+                .oneshot(Request::get(format!("/login{query}")).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let html = String::from_utf8(body.to_vec()).unwrap();
+            assert!(html.contains(expected), "{query}: {html}");
+            assert!(!html.contains(r#"class="error""#));
+        }
+    }
+
+    #[tokio::test]
+    async fn authenticated_ui_route_reaches_the_frontend_handler() {
+        let response = crate::test_support::authed_request(Request::get("/stations").body(Body::empty()).unwrap()).await;
+        // Dev builds (like `cargo test`) embed no bundle and say so.
+        #[cfg(not(embed_frontend))]
+        {
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert!(String::from_utf8_lossy(&body).contains("frontend is not embedded"));
+        }
+        #[cfg(embed_frontend)]
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn login_submit_rejects_malformed_form() {
+        let app = crate::server::router(test_state());
+        let response = app
+            .oneshot(
+                Request::post("/login")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("next=%2F"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
     #[test]
     fn bearer_and_cookie_both_authenticate() {
         let token = expected_token("test-password");
@@ -339,5 +388,11 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::COOKIE, format!("{COOKIE_NAME}=").parse().unwrap());
         assert!(!is_authenticated(&headers, &token));
+
+        for auth in [format!("Basic {token}"), "Bearer".to_string(), format!("Bearer {token}x")] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::AUTHORIZATION, auth.parse().unwrap());
+            assert!(!is_authenticated(&headers, &token), "{auth}");
+        }
     }
 }

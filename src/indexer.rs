@@ -305,3 +305,74 @@ pub async fn run(pool: &PgPool, s3: &S3, overwrite: bool) -> anyhow::Result<()> 
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::mock_s3;
+    use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
+    use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Output;
+    use aws_sdk_s3::primitives::ByteStream;
+    use aws_sdk_s3::types::CommonPrefix;
+    use aws_smithy_mocks::{RuleMode, mock, mock_client};
+
+    #[tokio::test]
+    async fn station_prefixes_are_sorted_directories_under_shows() {
+        let list = mock!(aws_sdk_s3::Client::list_objects_v2)
+            .match_requests(|r| r.prefix() == Some("shows/") && r.delimiter() == Some("/"))
+            .then_output(|| {
+                ListObjectsV2Output::builder()
+                    .set_common_prefixes(Some(
+                        ["shows/rthk-radio2/", "shows/rthk-radio1/", "shows//"]
+                            .into_iter()
+                            .map(|p| CommonPrefix::builder().prefix(p).build())
+                            .collect(),
+                    ))
+                    .build()
+            });
+        let s3 = mock_s3(mock_client!(aws_sdk_s3, [&list]));
+        assert_eq!(
+            list_station_prefixes(&s3).await.unwrap(),
+            vec![
+                ("shows/rthk-radio1/".to_string(), "rthk-radio1".to_string()),
+                ("shows/rthk-radio2/".to_string(), "rthk-radio2".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn station_listing_failure_is_an_error() {
+        let list = mock!(aws_sdk_s3::Client::list_objects_v2)
+            .then_error(|| aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Error::unhandled("down"));
+        let s3 = mock_s3(mock_client!(aws_sdk_s3, [&list]));
+        let error = list_station_prefixes(&s3).await.unwrap_err().to_string();
+        assert!(error.starts_with("ListObjectsV2 shows/: "), "{error}");
+    }
+
+    #[tokio::test]
+    async fn only_json_object_sidecars_are_used() {
+        let body = |key: &'static str, body: &'static [u8]| {
+            mock!(aws_sdk_s3::Client::get_object)
+                .match_requests(move |r| r.key() == Some(key))
+                .then_output(move || GetObjectOutput::builder().body(ByteStream::from_static(body)).build())
+        };
+        let object = body("object", br#"{"show": {"name": "X"}}"#);
+        let array = body("array", b"[1]");
+        let invalid = body("invalid", b"{nope");
+        let failing = mock!(aws_sdk_s3::Client::get_object)
+            .match_requests(|r| r.key() == Some("failing"))
+            .then_error(|| GetObjectError::unhandled("boom"));
+        let s3 = mock_s3(mock_client!(
+            aws_sdk_s3,
+            RuleMode::MatchAny,
+            [&object, &array, &invalid, &failing]
+        ));
+        assert_eq!(
+            fetch_metadata(&s3, "object").await,
+            Some(serde_json::json!({"show": {"name": "X"}}))
+        );
+        for key in ["array", "invalid", "failing"] {
+            assert_eq!(fetch_metadata(&s3, key).await, None, "{key}");
+        }
+    }
+}

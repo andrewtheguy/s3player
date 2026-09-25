@@ -196,16 +196,16 @@ The two filters are mutually exclusive, so an episode should not appear in both.
 
 ## Tests
 
-`cargo test` runs unit tests beside the code:
+`cargo test` runs unit tests beside the code; they need no services:
 
-- Pure functions: sidecar parsing and chapter normalization (`show_metadata.rs`), summary prefix and chapter-file parsing (`summaries.rs`), month ranges (`shows.rs`), token/`next` helpers (`auth.rs`), error rendering (`error.rs`), the CLI definition (`cli.rs`).
-- S3 logic against `aws-smithy-mocks` clients (`summaries.rs`).
-- Router tests through `tower::ServiceExt::oneshot` with a lazy, never-connecting pool (`test_support.rs`): login cookie flow, bearer/cookie auth, 401/redirect behaviour, validation 422s, missing session tokens.
+- Pure functions: sidecar parsing and chapter normalization (`show_metadata.rs`), summary prefix and chapter-file parsing (`summaries.rs`), month ranges (`shows.rs`), token/`next` helpers (`auth.rs`), `positive_id`/`limit_param` (`server.rs`), error rendering (`error.rs`), CLI parsing (`cli.rs`), `DATABASE_URL` vs `POSTGRES_*` resolution (`db.rs`).
+- S3 logic against `aws-smithy-mocks` clients: listing pagination and fetches (`s3.rs`), station discovery and sidecar decoding (`indexer.rs`), the audio proxy's 200/206 headers and S3-error → 404/416/502 mapping plus presigning (`audio.rs`), summaries (`summaries.rs`).
+- Router tests through `tower::ServiceExt::oneshot` with a lazy, never-connecting pool (`test_support.rs`): login form and cookie flow, bearer/cookie auth, 401/redirect behaviour, validation 422s, missing session tokens.
 
-There are no automated tests against a real Postgres or bucket.
+`tests/e2e.rs` is the end-to-end suite: it runs the real `s3player` binary (`index` and `server`) against a [Silo](https://github.com/pgsty/silo) S3 server (a MinIO fork) and Postgres, seeding objects with the S3 SDK and asserting over HTTP and SQL. It covers the indexer (skips, overwrite, soft-delete/restore, via its `done:` stats line), every API route, auth flows, audio ranges and presigned URLs, chapter summaries, the player session, `POSTGRES_*` settings, and SIGTERM shutdown. Each test makes its own bucket and database, so tests run in parallel. The tests are `#[ignore]`d; `scripts/e2e.sh` downloads Silo (checksum-pinned, into `tmp/tools`), starts it and a `postgres:17-alpine` container (podman or docker, or an existing server via `S3PLAYER_E2E_DATABASE_URL`), runs them, and tears everything down. `scripts/e2e.sh --coverage` runs unit and e2e tests under `cargo-llvm-cov` for one combined report (`tmp/coverage/`).
 
 ## Deployment
 
 The Dockerfile builds the release binary (frontend embedded) in a Rust image with Bun, then copies it into a `debian:trixie-slim` runtime with `tini`. `ENTRYPOINT` is `tini --` and `CMD` is `s3player server`, with `SERVER_HOST=0.0.0.0`. The `runtime-prebuilt` target wraps a binary built outside Docker (used by the release workflow); the `export` target extracts binaries (`docker-bake.hcl`, `build-docker.sh`).
 
-CI (`.github/workflows/ci.yml`) runs clippy, tests, a CLI smoke test, and the frontend lint/typecheck/build. The release workflow (`release.yml`) builds the frontend once, embeds it into Linux and macOS binaries via `S3PLAYER_PREBUILT_FRONTEND`, publishes a GitHub release, and pushes multi-arch images. There is no automated indexer run; `s3player index` is invoked manually or by an out-of-band scheduler when new files land in S3.
+CI (`.github/workflows/ci.yml`) runs clippy, unit tests, a CLI smoke test, the e2e suite (`scripts/e2e.sh` with a Postgres service container), and the frontend lint/typecheck/build. The release workflow (`release.yml`) builds the frontend once, embeds it into Linux and macOS binaries via `S3PLAYER_PREBUILT_FRONTEND`, publishes a GitHub release, and pushes multi-arch images. There is no automated indexer run; `s3player index` is invoked manually or by an out-of-band scheduler when new files land in S3.
