@@ -3,6 +3,12 @@ name: Release
 on:
   workflow_dispatch:
 
+# The tag comes from Cargo.toml inside the run, so serialize all releases: a
+# queued run then sees the tag the previous one created and stops.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   GHCR_IMAGE: ghcr.io/andrewtheguy/s3player
 
@@ -181,14 +187,6 @@ jobs:
           pattern: s3player-*
           merge-multiple: true
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          name: ${{ needs.prepare.outputs.tag }}
-          files: artifacts/*
-          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -212,3 +210,13 @@ jobs:
               ${{ env.GHCR_IMAGE }}:${TAG}-arm64
             docker manifest push ${{ env.GHCR_IMAGE }}:latest
           fi
+
+      # Last, so the tag only exists once the images are published.
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.prepare.outputs.tag }}
+          files: artifacts/*
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}

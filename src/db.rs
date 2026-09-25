@@ -82,8 +82,18 @@ pub async fn connect(args: &DbArgs) -> anyhow::Result<PgPool> {
     Ok(pool)
 }
 
+/// Arbitrary key for the bootstrap advisory lock.
+const SCHEMA_LOCK_KEY: i64 = 0x5333_706c_6179;
+
 async fn bootstrap_schema(pool: &PgPool) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
+    // Concurrent `CREATE … IF NOT EXISTS` can still collide (the server and
+    // the indexer starting together), so bootstraps take turns.
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SCHEMA_LOCK_KEY)
+        .execute(&mut *tx)
+        .await
+        .context("failed to lock for schema bootstrap")?;
     for stmt in SCHEMA_STATEMENTS {
         sqlx::query(stmt)
             .execute(&mut *tx)

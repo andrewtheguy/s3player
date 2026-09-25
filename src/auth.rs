@@ -55,8 +55,14 @@ pub fn is_authenticated(headers: &HeaderMap, token: &str) -> bool {
 }
 
 /// Only same-origin absolute paths are allowed as post-login redirect targets.
+/// Browsers read `/\host` like `//host` and strip tabs and newlines, so a
+/// backslash second byte and any control character are rejected too.
 pub fn safe_next(next: &str) -> &str {
-    if next.starts_with('/') && !next.starts_with("//") {
+    let bytes = next.as_bytes();
+    if bytes.first() == Some(&b'/')
+        && !matches!(bytes.get(1), Some(b'/' | b'\\'))
+        && !next.chars().any(char::is_control)
+    {
         next
     } else {
         "/"
@@ -220,6 +226,9 @@ mod tests {
         assert_eq!(safe_next("//evil.example"), "/");
         assert_eq!(safe_next("https://evil.example"), "/");
         assert_eq!(safe_next(""), "/");
+        assert_eq!(safe_next("/\\evil.example"), "/");
+        assert_eq!(safe_next("/\t/evil.example"), "/");
+        assert_eq!(safe_next("/player/1\n"), "/");
     }
 
     #[test]

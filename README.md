@@ -91,7 +91,8 @@ must be able to create databases).
 
 ## Releases
 
-Releases are cut manually: bump `version` in `Cargo.toml`, merge to `main`,
+Releases are cut manually: bump `version` in `Cargo.toml`, run `cargo check`
+so `Cargo.lock` picks it up, commit both, merge to `main`,
 then run the **Release** workflow (`.github/workflows/release.yml`) from the
 Actions tab. It derives the tag from `Cargo.toml` (`0.0.1` → `v0.0.1`), builds
 the frontend once, builds Linux (x86_64, arm64) and macOS (arm64) binaries,

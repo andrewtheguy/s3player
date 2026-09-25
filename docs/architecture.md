@@ -111,7 +111,7 @@ Schema is created at startup by `db::connect` using `IF NOT EXISTS` statements:
 4. Fetch the sidecar and parse it as a JSON object. `show_metadata::extract_show_metadata` reads `show.{name, date, start, end}` into a `ShowMetadata` (name, `aired_on`, `time_slot`) or a `ShowMetadataError`. Sidecars whose `show.date` is missing are skipped at INFO; structurally invalid sidecars (missing `show` object, missing/empty name, malformed date) are skipped at WARN. `time_slot` is `HHMM_HHMM` when both `show.start` and `show.end` are `HH:MM`, otherwise NULL.
 5. Upsert `shows` (keyed on station + name, cached per run), then `INSERT … ON CONFLICT (s3_key) DO NOTHING` into `episodes` (`--overwrite`: `DO UPDATE` of show, date, and time slot).
 6. For each written episode, `normalize_chapters` runs over the same sidecar's `chapters` array (`start_ms_in_show` / `end_ms_in_show` / `title`) and sets `episodes.chapters` — no second S3 fetch. An overwritten episode whose sidecar has no chapter list gets its chapters cleared.
-7. Soft-delete any `episodes.s3_key` not seen in this run; restore any previously-deleted key that reappeared.
+7. Soft-delete any `episodes.s3_key` not seen in this run — skipped if any sidecar fetch failed or no station was found; restore any previously-deleted key that reappeared.
 
 The sidecar contract (canonical writer: upstream `extract_shows_rthk`; documented in `radio_show_tools/docs/show_sidecar.md`) is the only metadata source — the S3 key is treated purely as the audio path, not parsed for show name or air time.
 

@@ -55,6 +55,7 @@ struct Stats {
     skipped_non_metadata: usize,
     skipped_missing_audio: usize,
     skipped_invalid_metadata: usize,
+    fetch_failed: usize,
     skipped_missing_show_date: usize,
     inserted: usize,
     updated: usize,
@@ -92,16 +93,11 @@ async fn list_station_prefixes(s3: &S3) -> anyhow::Result<Vec<(String, String)>>
     Ok(results)
 }
 
-/// The sidecar as a JSON object, or `None` (logged) if it can't be used.
-async fn fetch_metadata(s3: &S3, key: &str) -> Option<Value> {
-    let body = match s3.get_bytes(key).await {
-        Ok(body) => body,
-        Err(e) => {
-            warn!("metadata fetch failed for {key}: {e:#}");
-            return None;
-        }
-    };
-    match serde_json::from_slice::<Value>(&body) {
+/// The sidecar as a JSON object, `Ok(None)` (logged) if its content can't be
+/// used, or an error if it couldn't be fetched.
+async fn fetch_metadata(s3: &S3, key: &str) -> anyhow::Result<Option<Value>> {
+    let body = s3.get_bytes(key).await?;
+    Ok(match serde_json::from_slice::<Value>(&body) {
         Ok(v) if v.is_object() => Some(v),
         Ok(_) => {
             warn!("metadata top-level is not an object for {key}");
@@ -111,7 +107,7 @@ async fn fetch_metadata(s3: &S3, key: &str) -> Option<Value> {
             warn!("metadata is not valid JSON for {key}: {e}");
             None
         }
-    }
+    })
 }
 
 /// Upsert the show and the episode. `Some((episode_id, inserted))` when the
@@ -211,9 +207,17 @@ pub async fn run(pool: &PgPool, s3: &S3, overwrite: bool) -> anyhow::Result<()> 
                 warn!("{progress} sidecar without audio file: {metadata_key}");
                 continue;
             }
-            let Some(meta) = fetch_metadata(s3, metadata_key).await else {
-                stats.skipped_invalid_metadata += 1;
-                continue;
+            let meta = match fetch_metadata(s3, metadata_key).await {
+                Ok(Some(meta)) => meta,
+                Ok(None) => {
+                    stats.skipped_invalid_metadata += 1;
+                    continue;
+                }
+                Err(e) => {
+                    stats.fetch_failed += 1;
+                    warn!("{progress} metadata fetch failed for {metadata_key}: {e:#}");
+                    continue;
+                }
             };
             let show = match extract_show_metadata(&meta) {
                 Ok(show) => show,
@@ -269,12 +273,21 @@ pub async fn run(pool: &PgPool, s3: &S3, overwrite: bool) -> anyhow::Result<()> 
     }
 
     let present: Vec<String> = present_keys.into_iter().collect();
-    stats.soft_deleted = sqlx::query(EPISODE_SOFT_DELETE_MISSING)
-        .bind(&present)
-        .execute(pool)
-        .await
-        .context("failed to soft-delete missing episodes")?
-        .rows_affected();
+    // An unreadable sidecar or an empty listing proves nothing is gone.
+    if stats.fetch_failed > 0 || stations.is_empty() {
+        warn!(
+            "skipping soft-delete: {} metadata fetch(es) failed, {} station(s) found",
+            stats.fetch_failed,
+            stations.len()
+        );
+    } else {
+        stats.soft_deleted = sqlx::query(EPISODE_SOFT_DELETE_MISSING)
+            .bind(&present)
+            .execute(pool)
+            .await
+            .context("failed to soft-delete missing episodes")?
+            .rows_affected();
+    }
     stats.restored = sqlx::query(EPISODE_RESTORE_PRESENT)
         .bind(&present)
         .execute(pool)
@@ -287,6 +300,7 @@ pub async fn run(pool: &PgPool, s3: &S3, overwrite: bool) -> anyhow::Result<()> 
         skipped_non_metadata,
         skipped_missing_audio,
         skipped_invalid_metadata,
+        fetch_failed,
         skipped_missing_show_date,
         inserted,
         updated,
@@ -299,6 +313,7 @@ pub async fn run(pool: &PgPool, s3: &S3, overwrite: bool) -> anyhow::Result<()> 
     info!(
         "done: overwrite={overwrite} scanned={scanned} inserted={inserted} updated={updated} \
          already_present={already_present} skipped_invalid_metadata={skipped_invalid_metadata} \
+         fetch_failed={fetch_failed} \
          skipped_missing_show_date={skipped_missing_show_date} skipped_non_metadata={skipped_non_metadata} \
          skipped_missing_audio={skipped_missing_audio} chapters_filled={chapters_filled} \
          chapters_cleared={chapters_cleared} soft_deleted={soft_deleted} restored={restored}"
@@ -368,11 +383,12 @@ mod tests {
             [&object, &array, &invalid, &failing]
         ));
         assert_eq!(
-            fetch_metadata(&s3, "object").await,
+            fetch_metadata(&s3, "object").await.unwrap(),
             Some(serde_json::json!({"show": {"name": "X"}}))
         );
-        for key in ["array", "invalid", "failing"] {
-            assert_eq!(fetch_metadata(&s3, key).await, None, "{key}");
+        for key in ["array", "invalid"] {
+            assert_eq!(fetch_metadata(&s3, key).await.unwrap(), None, "{key}");
         }
+        assert!(fetch_metadata(&s3, "failing").await.is_err());
     }
 }
